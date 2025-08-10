@@ -1,4 +1,4 @@
-# 🏪 POS & Inventory Management System
+# POS & Inventory Management System
 
 A comprehensive **Point of Sale (POS) and Inventory Management System** built with **Flutter** for Android. This enterprise-grade application provides businesses with complete control over their inventory, sales transactions, and business analytics.
 
@@ -17,7 +17,7 @@ A comprehensive **Point of Sale (POS) and Inventory Management System** built wi
 - **Sales History** - Comprehensive transaction records and reporting
 - **Dashboard Analytics** - Real-time business insights and metrics
 
-### 🚀 **Advanced Features**
+### **Advanced Features**
 - **Offline-First Architecture** - Works without internet connectivity
 - **Real-time Sync** - Background data synchronization when online
 - **Multi-device Support** - Responsive design for tablets and phones
@@ -25,7 +25,7 @@ A comprehensive **Point of Sale (POS) and Inventory Management System** built wi
 - **Security** - Input sanitization and data validation
 - **Backup & Recovery** - Export/import data in multiple formats
 
-### 🎨 **User Experience**
+### **User Experience**
 - **Material Design 3** - Modern, intuitive interface
 - **Loading States** - Skeleton screens for smooth user experience
 - **Error Handling** - Graceful error recovery with user-friendly messages

@@ -11,6 +11,7 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   static Database? _database;
+  static bool _fts5Available = false;
 
   Future<Database> get database async {
     _database ??= await _initDatabase();
@@ -136,49 +137,121 @@ class DatabaseHelper {
   }
 
   Future<void> _createFtsTable(Database db) async {
-    // Create FTS virtual table for full-text search
-    await db.execute('''
-      CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
-        id UNINDEXED,
-        name,
-        barcode UNINDEXED,
-        category,
-        description,
-        content='products',
-        content_rowid='rowid'
-      )
-    ''');
+    try {
+      // Try to create FTS5 virtual table for full-text search
+      await db.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS products_fts USING fts5(
+          id UNINDEXED,
+          name,
+          barcode UNINDEXED,
+          category,
+          description,
+          content='products',
+          content_rowid='rowid'
+        )
+      ''');
+      
+      _fts5Available = true;
+      print('FTS5 table created successfully');
+    } catch (e) {
+      print('FTS5 not supported, falling back to regular search: $e');
+      // FTS5 not available, create a regular table for search indexing
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS products_search (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          barcode TEXT,
+          category TEXT,
+          description TEXT,
+          search_text TEXT
+        )
+      ''');
+      
+      // Create index for faster searching
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_products_search_text 
+        ON products_search(search_text)
+      ''');
+      
+      print('Fallback search table created successfully');
+    }
 
-    // Create triggers to keep FTS table in sync
-    await db.execute('''
-      CREATE TRIGGER IF NOT EXISTS products_fts_insert AFTER INSERT ON products BEGIN
-        INSERT INTO products_fts(id, name, barcode, category, description)
-        VALUES (new.id, new.name, new.barcode, new.category, new.description);
-      END
-    ''');
+    // Create triggers to keep search table in sync
+    try {
+      // Try FTS5 triggers first
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS products_fts_insert AFTER INSERT ON products BEGIN
+          INSERT INTO products_fts(id, name, barcode, category, description)
+          VALUES (new.id, new.name, new.barcode, new.category, new.description);
+        END
+      ''');
 
-    await db.execute('''
-      CREATE TRIGGER IF NOT EXISTS products_fts_update AFTER UPDATE ON products BEGIN
-        UPDATE products_fts SET 
-          name = new.name,
-          barcode = new.barcode,
-          category = new.category,
-          description = new.description
-        WHERE id = new.id;
-      END
-    ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS products_fts_update AFTER UPDATE ON products BEGIN
+          UPDATE products_fts SET 
+            name = new.name,
+            barcode = new.barcode,
+            category = new.category,
+            description = new.description
+          WHERE id = new.id;
+        END
+      ''');
 
-    await db.execute('''
-      CREATE TRIGGER IF NOT EXISTS products_fts_delete AFTER DELETE ON products BEGIN
-        DELETE FROM products_fts WHERE id = old.id;
-      END
-    ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS products_fts_delete AFTER DELETE ON products BEGIN
+          DELETE FROM products_fts WHERE id = old.id;
+        END
+      ''');
 
-    // Populate FTS table with existing data
-    await db.execute('''
-      INSERT OR IGNORE INTO products_fts(id, name, barcode, category, description)
-      SELECT id, name, barcode, category, description FROM products
-    ''');
+      // Populate FTS table with existing data
+      await db.execute('''
+        INSERT OR IGNORE INTO products_fts(id, name, barcode, category, description)
+        SELECT id, name, barcode, category, description FROM products
+      ''');
+      
+      print('FTS5 triggers created successfully');
+    } catch (e) {
+      print('Creating fallback search triggers: $e');
+      // Create fallback triggers for regular search table
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS products_search_insert AFTER INSERT ON products BEGIN
+          INSERT OR REPLACE INTO products_search(id, name, barcode, category, description, search_text)
+          VALUES (new.id, new.name, new.barcode, new.category, new.description, 
+                  LOWER(new.name || ' ' || COALESCE(new.barcode, '') || ' ' || 
+                        COALESCE(new.category, '') || ' ' || COALESCE(new.description, '')));
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS products_search_update AFTER UPDATE ON products BEGIN
+          UPDATE products_search SET 
+            name = new.name,
+            barcode = new.barcode,
+            category = new.category,
+            description = new.description,
+            search_text = LOWER(new.name || ' ' || COALESCE(new.barcode, '') || ' ' || 
+                               COALESCE(new.category, '') || ' ' || COALESCE(new.description, ''))
+          WHERE id = new.id;
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS products_search_delete AFTER DELETE ON products BEGIN
+          DELETE FROM products_search WHERE id = old.id;
+        END
+      ''');
+
+      // Populate search table with existing data
+      await db.execute('''
+        INSERT OR REPLACE INTO products_search(id, name, barcode, category, description, search_text)
+        SELECT id, name, barcode, category, description,
+               LOWER(name || ' ' || COALESCE(barcode, '') || ' ' || 
+                     COALESCE(category, '') || ' ' || COALESCE(description, ''))
+        FROM products
+      ''');
+      
+      print('Fallback search triggers created successfully');
+    }
   }
 
   // ==================== PRODUCT OPERATIONS ====================
@@ -433,7 +506,7 @@ class DatabaseHelper {
       return getAllProducts(limit: limit, offset: offset);
     }
 
-    // Use FTS for better search performance
+    // First try FTS5 search
     try {
       final List<Map<String, dynamic>> ftsResults = await db.rawQuery('''
         SELECT p.* FROM products p
@@ -444,17 +517,44 @@ class DatabaseHelper {
       ''', [query, limit ?? 100, offset ?? 0]);
       
       if (ftsResults.isNotEmpty) {
+        print('Using FTS5 search');
         return List.generate(ftsResults.length, (i) => Product.fromMap(ftsResults[i]));
       }
     } catch (e) {
-      // Fallback to LIKE search if FTS fails
+      print('FTS5 search not available, trying fallback search: $e');
     }
 
-    // Fallback to traditional LIKE search
+    // Try fallback search table
+    try {
+      final searchTerm = '%${query.toLowerCase()}%';
+      final List<Map<String, dynamic>> searchResults = await db.rawQuery('''
+        SELECT p.* FROM products p
+        INNER JOIN products_search ps ON p.id = ps.id
+        WHERE ps.search_text LIKE ?
+        ORDER BY p.name ASC
+        LIMIT ? OFFSET ?
+      ''', [searchTerm, limit ?? 100, offset ?? 0]);
+
+      if (searchResults.isNotEmpty) {
+        print('Using fallback search table');
+        return List.generate(searchResults.length, (i) => Product.fromMap(searchResults[i]));
+      }
+    } catch (e) {
+      print('Fallback search table failed: $e');
+    }
+
+    // Final fallback to basic LIKE queries
+    print('Using basic LIKE search');
+    final searchTerm = '%${query.toLowerCase()}%';
     final List<Map<String, dynamic>> maps = await db.query(
       'products',
-      where: 'name LIKE ? OR barcode LIKE ? OR category LIKE ? OR description LIKE ?',
-      whereArgs: ['%$query%', '%$query%', '%$query%', '%$query%'],
+      where: '''
+        LOWER(name) LIKE ? OR 
+        LOWER(barcode) LIKE ? OR 
+        LOWER(category) LIKE ? OR 
+        LOWER(description) LIKE ?
+      ''',
+      whereArgs: [searchTerm, searchTerm, searchTerm, searchTerm],
       orderBy: 'name ASC',
       limit: limit,
       offset: offset,

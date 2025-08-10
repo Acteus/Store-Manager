@@ -44,6 +44,7 @@ dependencies:
   reactive_forms: ^17.0.1
   
   # Performance and Analytics
+  firebase_core: ^2.24.2
   firebase_analytics: ^10.7.4
   firebase_performance: ^0.9.3+8
   
@@ -59,7 +60,10 @@ dependencies:
   
   # File operations
   share_plus: ^7.2.1
-  file_picker: ^6.1.1
+  file_picker: ^8.0.0+1
+  
+  # Connectivity
+  connectivity_plus: ^5.0.2
 
 dev_dependencies:
   flutter_test:
