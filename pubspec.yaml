@@ -1,0 +1,74 @@
+name: pos_inventory_system
+description: A comprehensive POS and inventory management system for small stores
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # UI and Navigation
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0
+  
+  # Barcode functionality
+  mobile_scanner: ^3.5.7
+  barcode_widget: ^2.0.3
+  
+  # Database
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  
+  # State management
+  provider: ^6.1.1
+  riverpod: ^2.4.9
+  flutter_riverpod: ^2.4.9
+  
+  # Dependency Injection
+  get_it: ^7.6.4
+  
+  # Utilities
+  intl: ^0.20.2
+  uuid: ^4.1.0
+  permission_handler: ^11.0.1
+  
+  # Image handling
+  image_picker: ^1.0.4
+  image: ^4.1.3
+  cached_network_image: ^3.3.0
+  
+  # Forms and Validation
+  reactive_forms: ^17.0.1
+  
+  # Performance and Analytics
+  firebase_analytics: ^10.7.4
+  firebase_performance: ^0.9.3+8
+  
+  # Error Handling
+  dartz: ^0.10.1
+  
+  # Logging
+  logger: ^2.0.2+1
+  
+  # Storage
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.1
+  
+  # File operations
+  share_plus: ^7.2.1
+  file_picker: ^6.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
