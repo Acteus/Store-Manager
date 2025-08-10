@@ -1,12 +1,13 @@
 import 'package:dartz/dartz.dart';
 import '../error/failures.dart';
+import '../config/philippines_config.dart';
 import '../../models/product.dart';
 import '../../models/sale_item.dart';
 
 // Pricing business logic
 class PricingService {
-  static const double defaultTaxRate = 0.08; // 8% tax
-  static const double maxDiscountPercent = 50.0;
+  static const double defaultTaxRate = PhilippinesConfig.vatRate; // 12% VAT
+  static const double maxDiscountPercent = PhilippinesConfig.maxDiscountPercent;
 
   // Calculate sale totals
   SaleCalculation calculateSaleTotal(

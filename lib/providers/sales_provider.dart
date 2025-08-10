@@ -4,6 +4,7 @@ import '../models/product.dart';
 import '../repositories/sales_repository.dart';
 import '../core/services/error_handler_service.dart';
 import '../core/services/analytics_service.dart';
+import '../core/config/philippines_config.dart';
 
 import '../core/di/injection_container.dart' as di;
 import 'product_provider.dart'; // Import to get errorHandlerProvider and analyticsProvider
@@ -22,7 +23,8 @@ final cartProvider = StateNotifierProvider<CartNotifier, List<SaleItem>>((ref) {
 });
 
 // Sales State
-final salesProvider = StateNotifierProvider<SalesNotifier, AsyncValue<List<Sale>>>((ref) {
+final salesProvider =
+    StateNotifierProvider<SalesNotifier, AsyncValue<List<Sale>>>((ref) {
   return SalesNotifier(
     ref.watch(salesRepositoryProvider),
     ref.watch(errorHandlerProvider),
@@ -31,7 +33,8 @@ final salesProvider = StateNotifierProvider<SalesNotifier, AsyncValue<List<Sale>
 });
 
 // Sales Analytics
-final salesAnalyticsProvider = StateNotifierProvider<SalesAnalyticsNotifier, AsyncValue<Map<String, dynamic>>>((ref) {
+final salesAnalyticsProvider = StateNotifierProvider<SalesAnalyticsNotifier,
+    AsyncValue<Map<String, dynamic>>>((ref) {
   return SalesAnalyticsNotifier(
     ref.watch(salesRepositoryProvider),
     ref.watch(errorHandlerProvider),
@@ -40,10 +43,10 @@ final salesAnalyticsProvider = StateNotifierProvider<SalesAnalyticsNotifier, Asy
 
 // Current Sale State (for POS screen)
 final currentSaleProvider = StateProvider<Map<String, dynamic>>((ref) => {
-  'paymentMethod': 'Cash',
-  'customerName': '',
-  'taxRate': 0.08,
-});
+      'paymentMethod': 'Cash',
+      'customerName': '',
+      'taxRate': PhilippinesConfig.vatRate,
+    });
 
 // Cart Totals
 final cartTotalsProvider = Provider<Map<String, double>>((ref) {
@@ -65,14 +68,14 @@ final cartTotalsProvider = Provider<Map<String, double>>((ref) {
 // Today's Sales
 final todaysSalesProvider = Provider<AsyncValue<List<Sale>>>((ref) {
   final sales = ref.watch(salesProvider);
-  
+
   return sales.when(
     data: (salesList) {
       final today = DateTime.now();
       final todaysSales = salesList.where((sale) {
         return sale.timestamp.year == today.year &&
-               sale.timestamp.month == today.month &&
-               sale.timestamp.day == today.day;
+            sale.timestamp.month == today.month &&
+            sale.timestamp.day == today.day;
       }).toList();
       return AsyncValue.data(todaysSales);
     },
@@ -94,12 +97,13 @@ class CartNotifier extends StateNotifier<List<SaleItem>> {
         throw Exception('Insufficient stock for ${product.name}');
       }
 
-      final existingIndex = state.indexWhere((item) => item.productId == product.id);
-      
+      final existingIndex =
+          state.indexWhere((item) => item.productId == product.id);
+
       if (existingIndex >= 0) {
         final existingItem = state[existingIndex];
         final newQuantity = existingItem.quantity + quantity;
-        
+
         if (product.stockQuantity < newQuantity) {
           throw Exception('Insufficient stock for ${product.name}');
         }
@@ -139,7 +143,7 @@ class CartNotifier extends StateNotifier<List<SaleItem>> {
     try {
       final item = state.firstWhere((item) => item.id == itemId);
       state = state.where((item) => item.id != itemId).toList();
-      
+
       _analytics.logItemRemovedFromCart(item.productId);
     } catch (e) {
       _errorHandler.logError(e);
@@ -182,7 +186,7 @@ class CartNotifier extends StateNotifier<List<SaleItem>> {
   }
 
   int get itemCount => state.length;
-  
+
   int get totalItems => state.fold(0, (sum, item) => sum + item.quantity);
 }
 
@@ -192,14 +196,14 @@ class SalesNotifier extends StateNotifier<AsyncValue<List<Sale>>> {
   final ErrorHandlerService _errorHandler;
   final AnalyticsService _analytics;
 
-  SalesNotifier(this._repository, this._errorHandler, this._analytics) 
+  SalesNotifier(this._repository, this._errorHandler, this._analytics)
       : super(const AsyncValue.loading()) {
     loadSales();
   }
 
   Future<void> loadSales() async {
     state = const AsyncValue.loading();
-    
+
     final result = await _repository.getAllSales();
     result.fold(
       (failure) {
@@ -233,7 +237,7 @@ class SalesNotifier extends StateNotifier<AsyncValue<List<Sale>>> {
 
   Future<void> loadSalesByDateRange(DateTime start, DateTime end) async {
     state = const AsyncValue.loading();
-    
+
     final result = await _repository.getSalesByDateRange(start, end);
     result.fold(
       (failure) {
@@ -253,18 +257,19 @@ class SalesNotifier extends StateNotifier<AsyncValue<List<Sale>>> {
 }
 
 // Sales Analytics Notifier
-class SalesAnalyticsNotifier extends StateNotifier<AsyncValue<Map<String, dynamic>>> {
+class SalesAnalyticsNotifier
+    extends StateNotifier<AsyncValue<Map<String, dynamic>>> {
   final SalesRepository _repository;
   final ErrorHandlerService _errorHandler;
 
-  SalesAnalyticsNotifier(this._repository, this._errorHandler) 
+  SalesAnalyticsNotifier(this._repository, this._errorHandler)
       : super(const AsyncValue.loading()) {
     loadAnalytics();
   }
 
   Future<void> loadAnalytics() async {
     state = const AsyncValue.loading();
-    
+
     final result = await _repository.getSalesAnalytics();
     result.fold(
       (failure) {

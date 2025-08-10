@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/sale_item.dart';
 import '../services/database_helper.dart';
+import '../core/config/philippines_config.dart';
 
 class SalesHistoryScreen extends StatefulWidget {
   const SalesHistoryScreen({Key? key}) : super(key: key);
@@ -215,7 +216,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 Expanded(
                   child: _SummaryCard(
                     title: 'Total Sales',
-                    value: '\$${_totalSales.toStringAsFixed(2)}',
+                    value: PhilippinesConfig.formatCurrency(_totalSales),
                     icon: Icons.attach_money,
                     color: Colors.green,
                   ),
@@ -233,7 +234,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 Expanded(
                   child: _SummaryCard(
                     title: 'Average',
-                    value: '\$${_averageTransaction.toStringAsFixed(2)}',
+                    value:
+                        PhilippinesConfig.formatCurrency(_averageTransaction),
                     icon: Icons.trending_up,
                     color: Colors.purple,
                   ),
@@ -326,7 +328,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                         Expanded(
                           child: Text('${item.productName} x${item.quantity}'),
                         ),
-                        Text('\$${item.totalPrice.toStringAsFixed(2)}'),
+                        Text(PhilippinesConfig.formatCurrency(item.totalPrice)),
                       ],
                     ),
                   )),
@@ -335,14 +337,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Subtotal:'),
-                  Text('\$${sale.subtotal.toStringAsFixed(2)}'),
+                  Text(PhilippinesConfig.formatCurrency(sale.subtotal)),
                 ],
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Tax:'),
-                  Text('\$${sale.tax.toStringAsFixed(2)}'),
+                  Text('${PhilippinesConfig.vatDisplayName}:'),
+                  Text(PhilippinesConfig.formatCurrency(sale.tax)),
                 ],
               ),
               const Divider(),
@@ -351,7 +353,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                 children: [
                   const Text('Total:',
                       style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('\$${sale.total.toStringAsFixed(2)}',
+                  Text(PhilippinesConfig.formatCurrency(sale.total),
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                 ],
               ),
@@ -461,7 +463,7 @@ class _SaleListItem extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              '\$${sale.total.toStringAsFixed(2)}',
+              PhilippinesConfig.formatCurrency(sale.total),
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,

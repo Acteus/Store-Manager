@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/database_helper.dart';
+import '../core/config/philippines_config.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -188,7 +189,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         Expanded(
                           child: _StatCard(
                             title: "Today's Sales",
-                            value: '\$${_todaysSales.toStringAsFixed(2)}',
+                            value:
+                                PhilippinesConfig.formatCurrency(_todaysSales),
                             subtitle: '$_todaysSalesCount transactions',
                             icon: Icons.attach_money,
                             color: Colors.green,

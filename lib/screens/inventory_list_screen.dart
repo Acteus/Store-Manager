@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/product.dart';
 import '../services/database_helper.dart';
+import '../core/config/philippines_config.dart';
 import '../services/barcode_service.dart';
 
 class InventoryListScreen extends StatefulWidget {
@@ -363,7 +364,8 @@ class _ProductListItem extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${product.category} • \$${product.price.toStringAsFixed(2)}'),
+            Text(
+                '${product.category} • ${PhilippinesConfig.formatCurrency(product.price)}'),
             Text(
               'Stock: ${product.stockQuantity}',
               style: TextStyle(

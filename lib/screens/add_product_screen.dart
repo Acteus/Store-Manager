@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../models/product.dart';
 import '../services/database_helper.dart';
 import '../services/barcode_service.dart';
+import '../core/config/philippines_config.dart';
 
 class AddProductScreen extends StatefulWidget {
   final Map<String, dynamic>? arguments;
@@ -252,7 +253,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   labelText: 'Price *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.attach_money),
-                  prefixText: '\$',
+                  prefixText: PhilippinesConfig.currencySymbol,
                 ),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),

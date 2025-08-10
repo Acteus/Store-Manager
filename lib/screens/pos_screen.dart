@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/product.dart';
 import '../models/sale_item.dart';
 import '../services/database_helper.dart';
+import '../core/config/philippines_config.dart';
 
 class POSScreen extends StatefulWidget {
   const POSScreen({Key? key}) : super(key: key);
@@ -24,9 +25,9 @@ class _POSScreenState extends State<POSScreen> {
   bool _isLoading = true;
   bool _isProcessingSale = false;
   String _paymentMethod = 'Cash';
-  double _taxRate = 0.08; // 8% tax rate
+  double _taxRate = PhilippinesConfig.vatRate; // 12% VAT rate
 
-  final List<String> _paymentMethods = ['Cash', 'Card', 'Mobile Payment'];
+  final List<String> _paymentMethods = PhilippinesConfig.paymentMethods;
 
   @override
   void initState() {
@@ -222,7 +223,7 @@ class _POSScreenState extends State<POSScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Sale completed: \$${_total.toStringAsFixed(2)}')),
+              content: Text('Sale completed: ${PhilippinesConfig.formatCurrency(_total)}')),
         );
 
         _showReceiptDialog(sale);
@@ -246,18 +247,37 @@ class _POSScreenState extends State<POSScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Sale Receipt'),
+        title: const Text('Official Receipt'),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Business Header
+              const Center(
+                child: Column(
+                  children: [
+                    Text(
+                      'Your Business Name',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text('Your Business Address'),
+                    Text(PhilippinesConfig.vatRegistrationText),
+                    Text(PhilippinesConfig.businessPermitText),
+                  ],
+                ),
+              ),
+              const Divider(),
               Text('Date: ${formatter.format(sale.timestamp)}'),
               Text('Receipt #: ${sale.id.substring(0, 8)}'),
               if (sale.customerName != null)
                 Text('Customer: ${sale.customerName}'),
-              Text('Payment: ${sale.paymentMethod}'),
+              Text('Payment Method: ${sale.paymentMethod}'),
               const Divider(),
+              // Items
               ...sale.items.map((item) => Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Row(
@@ -266,34 +286,45 @@ class _POSScreenState extends State<POSScreen> {
                         Expanded(
                           child: Text('${item.productName} x${item.quantity}'),
                         ),
-                        Text('\$${item.totalPrice.toStringAsFixed(2)}'),
+                        Text(PhilippinesConfig.formatCurrency(item.totalPrice)),
                       ],
                     ),
                   )),
               const Divider(),
+              // Net Amount (VAT Exclusive)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Subtotal:'),
-                  Text('\$${sale.subtotal.toStringAsFixed(2)}'),
+                  const Text('VAT Exclusive Amount:'),
+                  Text(PhilippinesConfig.formatCurrency(
+                    PhilippinesConfig.calculateNetFromGross(sale.total))),
                 ],
               ),
+              // VAT Amount
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Tax (${(_taxRate * 100).toStringAsFixed(1)}%):'),
-                  Text('\$${sale.tax.toStringAsFixed(2)}'),
+                  Text('${PhilippinesConfig.formatVatText()}:'),
+                  Text(PhilippinesConfig.formatCurrency(sale.tax)),
                 ],
               ),
               const Divider(),
+              // Total (VAT Inclusive)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Total:',
+                  const Text('Total Amount (VAT Inclusive):',
                       style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('\$${sale.total.toStringAsFixed(2)}',
+                  Text(PhilippinesConfig.formatCurrency(sale.total),
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                 ],
+              ),
+              const SizedBox(height: 8),
+              const Center(
+                child: Text(
+                  PhilippinesConfig.receiptFooter,
+                  style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+                ),
               ),
             ],
           ),
@@ -754,15 +785,15 @@ class _TotalSection extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text('Subtotal:'),
-            Text('\$${subtotal.toStringAsFixed(2)}'),
+            Text(PhilippinesConfig.formatCurrency(subtotal)),
           ],
         ),
         const SizedBox(height: 4),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Tax (${(taxRate * 100).toStringAsFixed(1)}%):'),
-            Text('\$${tax.toStringAsFixed(2)}'),
+            Text('${PhilippinesConfig.formatVatText()}:'),
+            Text(PhilippinesConfig.formatCurrency(tax)),
           ],
         ),
         const Divider(),
@@ -777,7 +808,7 @@ class _TotalSection extends StatelessWidget {
               ),
             ),
             Text(
-              '\$${total.toStringAsFixed(2)}',
+              PhilippinesConfig.formatCurrency(total),
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,

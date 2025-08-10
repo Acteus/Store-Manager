@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/product.dart';
 import '../services/database_helper.dart';
 import '../services/barcode_service.dart';
+import '../core/config/philippines_config.dart';
 
 class EditProductScreen extends StatefulWidget {
   final Product product;
@@ -353,7 +354,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                   labelText: 'Price *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.attach_money),
-                  prefixText: '\$',
+                  prefixText: PhilippinesConfig.currencySymbol,
                 ),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
