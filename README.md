@@ -17,6 +17,8 @@ A comprehensive **Point of Sale (POS) and Inventory Management System** built wi
 - **Sales History** - Comprehensive transaction records and reporting
 - **Dashboard Analytics** - Real-time business insights and metrics
 
+![Alt text](images/Dashboard.png)
+
 ### **Advanced Features**
 - **Offline-First Architecture** - Works without internet connectivity
 - **Real-time Sync** - Background data synchronization when online
@@ -57,7 +59,7 @@ A comprehensive **Point of Sale (POS) and Inventory Management System** built wi
 - **Type Safety** - Full null-safety implementation
 - **Data Validation** - Comprehensive form and input validation
 
-## 📦 **Installation & Setup**
+## **Installation & Setup**
 
 ### **Prerequisites**
 - Flutter SDK 3.0+
@@ -110,7 +112,7 @@ lib/
 └── services/               # Business services
 ```
 
-## 🔧 **Configuration**
+##  **Configuration**
 
 ### **Firebase Setup (Optional)**
 For analytics and performance monitoring:
