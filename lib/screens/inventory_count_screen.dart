@@ -21,8 +21,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
 
   List<Product> _products = [];
   List<Product> _filteredProducts = [];
-  Map<String, int> _physicalCounts = {};
-  Map<String, String> _notes = {};
+  final Map<String, int> _physicalCounts = {};
+  final Map<String, String> _notes = {};
   bool _isLoading = true;
   bool _isSaving = false;
   String _selectedCategory = 'All';

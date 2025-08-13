@@ -15,40 +15,41 @@ final sl = GetIt.instance;
 Future<void> init() async {
   // Core Services
   sl.registerLazySingleton<Logger>(() => Logger(
-    printer: PrettyPrinter(
-      methodCount: 2,
-      errorMethodCount: 8,
-      lineLength: 120,
-      colors: true,
-      printEmojis: true,
-      printTime: false,
-    ),
-  ));
+        printer: PrettyPrinter(
+          methodCount: 2,
+          errorMethodCount: 8,
+          lineLength: 120,
+          colors: true,
+          printEmojis: true,
+          dateTimeFormat: DateTimeFormat.none,
+        ),
+      ));
 
   sl.registerLazySingleton<DatabaseHelper>(() => DatabaseHelper());
   sl.registerLazySingleton<BarcodeService>(() => BarcodeService());
   sl.registerLazySingleton<CacheService>(() => CacheService());
-  sl.registerLazySingleton<ErrorHandlerService>(() => ErrorHandlerService(sl()));
+  sl.registerLazySingleton<ErrorHandlerService>(
+      () => ErrorHandlerService(sl()));
   sl.registerLazySingleton<AnalyticsService>(() => AnalyticsService());
   sl.registerLazySingleton<PerformanceService>(() => PerformanceService());
 
   // Repositories
   sl.registerLazySingleton<ProductRepository>(() => ProductRepositoryImpl(
-    databaseHelper: sl(),
-    cacheService: sl(),
-    logger: sl(),
-  ));
+        databaseHelper: sl(),
+        cacheService: sl(),
+        logger: sl(),
+      ));
 
   sl.registerLazySingleton<SalesRepository>(() => SalesRepositoryImpl(
-    databaseHelper: sl(),
-    cacheService: sl(),
-    logger: sl(),
-  ));
+        databaseHelper: sl(),
+        cacheService: sl(),
+        logger: sl(),
+      ));
 
   sl.registerLazySingleton<InventoryRepository>(() => InventoryRepositoryImpl(
-    databaseHelper: sl(),
-    logger: sl(),
-  ));
+        databaseHelper: sl(),
+        logger: sl(),
+      ));
 
   // Note: Riverpod providers are registered in the provider files themselves
 }

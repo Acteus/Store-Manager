@@ -19,13 +19,13 @@ class _POSScreenState extends State<POSScreen> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
 
-  List<SaleItem> _cartItems = [];
+  final List<SaleItem> _cartItems = [];
   List<Product> _products = [];
   List<Product> _filteredProducts = [];
   bool _isLoading = true;
   bool _isProcessingSale = false;
   String _paymentMethod = 'Cash';
-  double _taxRate = PhilippinesConfig.vatRate; // 12% VAT rate
+  final double _taxRate = PhilippinesConfig.vatRate; // 12% VAT rate
 
   final List<String> _paymentMethods = PhilippinesConfig.paymentMethods;
 
@@ -223,7 +223,8 @@ class _POSScreenState extends State<POSScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Sale completed: ${PhilippinesConfig.formatCurrency(_total)}')),
+              content: Text(
+                  'Sale completed: ${PhilippinesConfig.formatCurrency(_total)}')),
         );
 
         _showReceiptDialog(sale);
@@ -297,7 +298,7 @@ class _POSScreenState extends State<POSScreen> {
                 children: [
                   const Text('VAT Exclusive Amount:'),
                   Text(PhilippinesConfig.formatCurrency(
-                    PhilippinesConfig.calculateNetFromGross(sale.total))),
+                      PhilippinesConfig.calculateNetFromGross(sale.total))),
                 ],
               ),
               // VAT Amount

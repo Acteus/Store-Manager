@@ -61,6 +61,7 @@ class ConnectivityService extends ChangeNotifier {
     }
   }
 
+  @override
   void dispose() {
     _subscription?.cancel();
     _controller.close();

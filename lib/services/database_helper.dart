@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:logger/logger.dart';
 import '../models/product.dart';
 import '../models/sale_item.dart';
 import '../models/inventory_count.dart';
+import '../core/di/injection_container.dart' as di;
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -11,7 +13,7 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   static Database? _database;
-  static bool _fts5Available = false;
+  late final Logger _logger = di.sl<Logger>();
 
   Future<Database> get database async {
     _database ??= await _initDatabase();
@@ -94,7 +96,7 @@ class DatabaseHelper {
 
     // Create indexes for better performance
     await _createIndexes(db);
-    
+
     // Create FTS (Full Text Search) table for products
     await _createFtsTable(db);
   }
@@ -109,31 +111,48 @@ class DatabaseHelper {
 
   Future<void> _createIndexes(Database db) async {
     // Basic indexes
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_products_category ON products (category)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_products_stock ON products (stockQuantity)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_products_low_stock ON products (stockQuantity, minStockLevel)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_products_created ON products (createdAt)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_products_updated ON products (updatedAt)');
-    
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_category ON products (category)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_stock ON products (stockQuantity)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_low_stock ON products (stockQuantity, minStockLevel)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_created ON products (createdAt)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_updated ON products (updatedAt)');
+
     // Sales indexes
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_sales_timestamp ON sales (timestamp)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_sales_total ON sales (total)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON sales (paymentMethod)');
-    
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sales_timestamp ON sales (timestamp)');
+    await db
+        .execute('CREATE INDEX IF NOT EXISTS idx_sales_total ON sales (total)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sales_payment_method ON sales (paymentMethod)');
+
     // Sale items indexes
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items (saleId)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_product_id ON sale_items (productId)');
-    
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items (saleId)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sale_items_product_id ON sale_items (productId)');
+
     // Inventory counts indexes
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_inventory_counts_product_id ON inventory_counts (productId)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_inventory_counts_date ON inventory_counts (countDate)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_inventory_counts_variance ON inventory_counts (variance)');
-    
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inventory_counts_product_id ON inventory_counts (productId)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inventory_counts_date ON inventory_counts (countDate)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inventory_counts_variance ON inventory_counts (variance)');
+
     // Compound indexes for common queries
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_products_category_stock ON products (category, stockQuantity)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_sales_timestamp_total ON sales (timestamp, total)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_sale_items_product_quantity ON sale_items (productId, quantity)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_products_category_stock ON products (category, stockQuantity)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sales_timestamp_total ON sales (timestamp, total)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_sale_items_product_quantity ON sale_items (productId, quantity)');
   }
 
   Future<void> _createFtsTable(Database db) async {
@@ -150,11 +169,10 @@ class DatabaseHelper {
           content_rowid='rowid'
         )
       ''');
-      
-      _fts5Available = true;
-      print('FTS5 table created successfully');
+
+      _logger.i('FTS5 table created successfully');
     } catch (e) {
-      print('FTS5 not supported, falling back to regular search: $e');
+      _logger.w('FTS5 not supported, falling back to regular search: $e');
       // FTS5 not available, create a regular table for search indexing
       await db.execute('''
         CREATE TABLE IF NOT EXISTS products_search (
@@ -166,14 +184,14 @@ class DatabaseHelper {
           search_text TEXT
         )
       ''');
-      
+
       // Create index for faster searching
       await db.execute('''
         CREATE INDEX IF NOT EXISTS idx_products_search_text 
         ON products_search(search_text)
       ''');
-      
-      print('Fallback search table created successfully');
+
+      _logger.i('Fallback search table created successfully');
     }
 
     // Create triggers to keep search table in sync
@@ -208,10 +226,10 @@ class DatabaseHelper {
         INSERT OR IGNORE INTO products_fts(id, name, barcode, category, description)
         SELECT id, name, barcode, category, description FROM products
       ''');
-      
-      print('FTS5 triggers created successfully');
+
+      _logger.i('FTS5 triggers created successfully');
     } catch (e) {
-      print('Creating fallback search triggers: $e');
+      _logger.w('Creating fallback search triggers: $e');
       // Create fallback triggers for regular search table
       await db.execute('''
         CREATE TRIGGER IF NOT EXISTS products_search_insert AFTER INSERT ON products BEGIN
@@ -249,8 +267,8 @@ class DatabaseHelper {
                      COALESCE(category, '') || ' ' || COALESCE(description, ''))
         FROM products
       ''');
-      
-      print('Fallback search triggers created successfully');
+
+      _logger.i('Fallback search triggers created successfully');
     }
   }
 
@@ -304,7 +322,8 @@ class DatabaseHelper {
     return null;
   }
 
-  Future<List<Product>> getProductsByCategory(String category, {int? limit, int? offset}) async {
+  Future<List<Product>> getProductsByCategory(String category,
+      {int? limit, int? offset}) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'products',
@@ -413,12 +432,16 @@ class DatabaseHelper {
     return sales;
   }
 
-  Future<List<Sale>> getSalesByDateRange(DateTime startDate, DateTime endDate, {int? limit, int? offset}) async {
+  Future<List<Sale>> getSalesByDateRange(DateTime startDate, DateTime endDate,
+      {int? limit, int? offset}) async {
     final db = await database;
     final List<Map<String, dynamic>> salesMaps = await db.query(
       'sales',
       where: 'timestamp BETWEEN ? AND ?',
-      whereArgs: [startDate.millisecondsSinceEpoch, endDate.millisecondsSinceEpoch],
+      whereArgs: [
+        startDate.millisecondsSinceEpoch,
+        endDate.millisecondsSinceEpoch
+      ],
       orderBy: 'timestamp DESC',
       limit: limit,
       offset: offset,
@@ -499,9 +522,10 @@ class DatabaseHelper {
 
   // ==================== SEARCH OPERATIONS ====================
 
-  Future<List<Product>> searchProducts(String query, {int? limit, int? offset}) async {
+  Future<List<Product>> searchProducts(String query,
+      {int? limit, int? offset}) async {
     final db = await database;
-    
+
     if (query.trim().isEmpty) {
       return getAllProducts(limit: limit, offset: offset);
     }
@@ -515,13 +539,14 @@ class DatabaseHelper {
         ORDER BY rank
         LIMIT ? OFFSET ?
       ''', [query, limit ?? 100, offset ?? 0]);
-      
+
       if (ftsResults.isNotEmpty) {
-        print('Using FTS5 search');
-        return List.generate(ftsResults.length, (i) => Product.fromMap(ftsResults[i]));
+        _logger.d('Using FTS5 search');
+        return List.generate(
+            ftsResults.length, (i) => Product.fromMap(ftsResults[i]));
       }
     } catch (e) {
-      print('FTS5 search not available, trying fallback search: $e');
+      _logger.w('FTS5 search not available, trying fallback search: $e');
     }
 
     // Try fallback search table
@@ -536,15 +561,16 @@ class DatabaseHelper {
       ''', [searchTerm, limit ?? 100, offset ?? 0]);
 
       if (searchResults.isNotEmpty) {
-        print('Using fallback search table');
-        return List.generate(searchResults.length, (i) => Product.fromMap(searchResults[i]));
+        _logger.d('Using fallback search table');
+        return List.generate(
+            searchResults.length, (i) => Product.fromMap(searchResults[i]));
       }
     } catch (e) {
-      print('Fallback search table failed: $e');
+      _logger.w('Fallback search table failed: $e');
     }
 
     // Final fallback to basic LIKE queries
-    print('Using basic LIKE search');
+    _logger.d('Using basic LIKE search');
     final searchTerm = '%${query.toLowerCase()}%';
     final List<Map<String, dynamic>> maps = await db.query(
       'products',
@@ -571,31 +597,31 @@ class DatabaseHelper {
     int? offset,
   }) async {
     final db = await database;
-    
+
     List<String> conditions = [];
     List<dynamic> args = [];
-    
+
     if (category != null && category != 'All') {
       conditions.add('category = ?');
       args.add(category);
     }
-    
+
     if (minPrice != null) {
       conditions.add('price >= ?');
       args.add(minPrice);
     }
-    
+
     if (maxPrice != null) {
       conditions.add('price <= ?');
       args.add(maxPrice);
     }
-    
+
     if (lowStock == true) {
       conditions.add('stockQuantity <= minStockLevel');
     }
-    
+
     String whereClause = conditions.isNotEmpty ? conditions.join(' AND ') : '';
-    
+
     final List<Map<String, dynamic>> maps = await db.query(
       'products',
       where: whereClause.isEmpty ? null : whereClause,
@@ -604,7 +630,7 @@ class DatabaseHelper {
       limit: limit,
       offset: offset,
     );
-    
+
     return List.generate(maps.length, (i) => Product.fromMap(maps[i]));
   }
 

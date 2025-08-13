@@ -40,10 +40,12 @@ class BarcodeService {
     if (RegExp(r'^\d{12}$').hasMatch(barcode)) return true; // UPC-A
     if (RegExp(r'^\d{13}$').hasMatch(barcode)) return true; // EAN-13
     if (RegExp(r'^\d{14}$').hasMatch(barcode)) return true; // ITF-14
-    if (RegExp(r'^[0-9A-Z\-. $\/+%]+$').hasMatch(barcode))
+    if (RegExp(r'^[0-9A-Z\-. $\/+%]+$').hasMatch(barcode)) {
       return true; // Code 39
-    if (RegExp(r'^[0-9]+$').hasMatch(barcode) && barcode.length >= 6)
+    }
+    if (RegExp(r'^[0-9]+$').hasMatch(barcode) && barcode.length >= 6) {
       return true; // Generic numeric
+    }
 
     return barcode.length >= 4; // Minimum length for custom barcodes
   }
