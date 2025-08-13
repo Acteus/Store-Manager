@@ -206,12 +206,11 @@ When requesting features:
    - Group by feature/fix/breaking change
    - Include migration instructions for breaking changes
 
-## 📞 Getting Help
+## Getting Help
 
 - **Documentation**: Check the README and wiki
 - **Issues**: Search existing issues first
 - **Discussions**: Use GitHub Discussions for questions
-- **Email**: support@yourcompany.com
 
 ## License
 
