@@ -199,10 +199,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## **Support**
 
-- **Documentation**: Check the wiki for detailed guides
 - **Issues**: Report bugs via GitHub Issues
 - **Discussions**: Join community discussions
-- **Email**: support@yourcompany.com
 
 ## **Roadmap**
 
