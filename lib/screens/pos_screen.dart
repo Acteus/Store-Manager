@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/product.dart';
 import '../models/sale_item.dart';
 import '../services/database_helper.dart';
+import '../services/notification_service.dart';
 import '../core/config/philippines_config.dart';
 
 class POSScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class POSScreen extends StatefulWidget {
 
 class _POSScreenState extends State<POSScreen> {
   final DatabaseHelper _databaseHelper = DatabaseHelper();
+  final NotificationService _notificationService = NotificationService();
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
@@ -42,6 +44,11 @@ class _POSScreenState extends State<POSScreen> {
 
     try {
       final products = await _databaseHelper.getAllProducts();
+      print('POS Screen - Loaded ${products.length} products');
+      for (var product in products) {
+        print(
+            'Product: ${product.name} - ${product.barcode} - ₱${product.price}');
+      }
       setState(() {
         _products = products;
         _filteredProducts = products;
@@ -133,6 +140,38 @@ class _POSScreenState extends State<POSScreen> {
         ));
       }
     });
+
+    // Check if product will be low stock after this addition
+    final remainingStock = product.stockQuantity - quantity;
+    if (remainingStock <= product.minStockLevel && remainingStock > 0) {
+      final updatedProduct = Product(
+        id: product.id,
+        name: product.name,
+        barcode: product.barcode,
+        price: product.price,
+        category: product.category,
+        description: product.description,
+        stockQuantity: remainingStock,
+        minStockLevel: product.minStockLevel,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+      );
+      _notificationService.showLowStockNotification(context, updatedProduct);
+    } else if (remainingStock <= 0) {
+      final updatedProduct = Product(
+        id: product.id,
+        name: product.name,
+        barcode: product.barcode,
+        price: product.price,
+        category: product.category,
+        description: product.description,
+        stockQuantity: remainingStock,
+        minStockLevel: product.minStockLevel,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+      );
+      _notificationService.showOutOfStockNotification(context, updatedProduct);
+    }
   }
 
   void _removeFromCart(int index) {
@@ -643,7 +682,7 @@ class _ProductCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '\$${product.price.toStringAsFixed(2)}',
+                '₱${product.price.toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.green.shade700,
@@ -742,7 +781,7 @@ class _CartItem extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '\$${item.totalPrice.toStringAsFixed(2)}',
+                  '₱${item.totalPrice.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -752,7 +791,7 @@ class _CartItem extends StatelessWidget {
               ],
             ),
             Text(
-              '\$${item.unitPrice.toStringAsFixed(2)} each',
+              '₱${item.unitPrice.toStringAsFixed(2)} each',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey.shade600,

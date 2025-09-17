@@ -38,7 +38,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
     });
 
     try {
-      final sales = await _databaseHelper.getAllSales();
+      final sales = await _databaseHelper.getAllSalesIncludingVoided();
       setState(() {
         _sales = sales;
         _isLoading = false;
@@ -287,6 +287,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                             return _SaleListItem(
                               sale: sale,
                               onTap: () => _showSaleDetails(sale),
+                              onVoid: () => _showVoidSaleDialog(sale),
                             );
                           },
                         ),
@@ -295,6 +296,108 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showVoidSaleDialog(Sale sale) async {
+    if (sale.isVoided) return;
+
+    final TextEditingController reasonController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Void Sale'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to void this sale?',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text('Receipt #${sale.id.substring(0, 8)}'),
+            Text('Total: ${PhilippinesConfig.formatCurrency(sale.total)}'),
+            const SizedBox(height: 16),
+            const Text('Reason for voiding:'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                hintText: 'Enter reason (required)',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Note: This will restore inventory and cannot be undone.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.orange,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a reason')),
+                );
+                return;
+              }
+              Navigator.of(context).pop(true);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Void Sale'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && reasonController.text.trim().isNotEmpty) {
+      try {
+        await _databaseHelper.voidSale(sale.id, reasonController.text.trim());
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Sale #${sale.id.substring(0, 8)} has been voided'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+
+        // Reload sales to show updated status
+        await _loadSales();
+
+        // Notify other screens to refresh by sending a message via Navigator
+        // This will trigger a refresh in the home screen when returning
+        if (mounted && Navigator.canPop(context)) {
+          // We could implement a callback or use state management for this
+          // For now, the home screen will refresh when navigating back to it
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to void sale: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
   void _showSaleDetails(Sale sale) {
@@ -425,10 +528,12 @@ class _SummaryCard extends StatelessWidget {
 class _SaleListItem extends StatelessWidget {
   final Sale sale;
   final VoidCallback onTap;
+  final VoidCallback? onVoid;
 
   const _SaleListItem({
     required this.sale,
     required this.onTap,
+    this.onVoid,
   });
 
   @override
@@ -437,17 +542,44 @@ class _SaleListItem extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      color: sale.isVoided ? Colors.red.shade50 : null,
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: Colors.green.shade100,
+          backgroundColor:
+              sale.isVoided ? Colors.red.shade100 : Colors.green.shade100,
           child: Icon(
-            Icons.receipt,
-            color: Colors.green.shade700,
+            sale.isVoided ? Icons.cancel : Icons.receipt,
+            color: sale.isVoided ? Colors.red.shade700 : Colors.green.shade700,
           ),
         ),
-        title: Text(
-          'Receipt #${sale.id.substring(0, 8)}',
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Receipt #${sale.id.substring(0, 8)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  decoration: sale.isVoided ? TextDecoration.lineThrough : null,
+                ),
+              ),
+            ),
+            if (sale.isVoided)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'VOIDED',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -456,6 +588,14 @@ class _SaleListItem extends StatelessWidget {
             Text('${sale.items.length} items • ${sale.paymentMethod}'),
             if (sale.customerName != null)
               Text('Customer: ${sale.customerName}'),
+            if (sale.isVoided && sale.voidReason != null)
+              Text(
+                'Void reason: ${sale.voidReason}',
+                style: TextStyle(
+                  color: Colors.red.shade700,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
           ],
         ),
         trailing: Column(
@@ -467,10 +607,35 @@ class _SaleListItem extends StatelessWidget {
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Colors.green.shade700,
+                color:
+                    sale.isVoided ? Colors.red.shade700 : Colors.green.shade700,
+                decoration: sale.isVoided ? TextDecoration.lineThrough : null,
               ),
             ),
-            const Icon(Icons.arrow_forward_ios, size: 16),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!sale.isVoided && onVoid != null)
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: GestureDetector(
+                      onTap: onVoid,
+                      child: Icon(
+                        Icons.delete_outline,
+                        size: 20,
+                        color: Colors.red.shade700,
+                      ),
+                    ),
+                  ),
+                const Icon(Icons.arrow_forward_ios, size: 16),
+              ],
+            ),
           ],
         ),
         onTap: onTap,

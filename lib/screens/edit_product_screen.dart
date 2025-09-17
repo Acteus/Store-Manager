@@ -211,12 +211,21 @@ class _EditProductScreenState extends State<EditProductScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.qr_code),
-            onPressed: () {
-              Navigator.pushNamed(
+            onPressed: () async {
+              final updatedProduct = await Navigator.pushNamed(
                 context,
                 '/barcode_generator',
                 arguments: widget.product,
-              );
+              ) as Product?;
+
+              if (updatedProduct != null) {
+                setState(() {
+                  _barcodeController.text = updatedProduct.barcode;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Barcode updated successfully')),
+                );
+              }
             },
           ),
           IconButton(

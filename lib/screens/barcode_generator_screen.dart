@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:barcode_widget/barcode_widget.dart';
 import '../services/barcode_service.dart';
 import '../services/database_helper.dart';
+import '../services/print_service.dart';
 import '../models/product.dart';
 
 class BarcodeGeneratorScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _BarcodeGeneratorScreenState extends State<BarcodeGeneratorScreen> {
   final TextEditingController _barcodeController = TextEditingController();
   final BarcodeService _barcodeService = BarcodeService();
   final DatabaseHelper _databaseHelper = DatabaseHelper();
+  final PrintService _printService = PrintService();
 
   String selectedBarcodeType = 'EAN13';
   bool isCustomBarcode = false;
@@ -62,19 +64,110 @@ class _BarcodeGeneratorScreenState extends State<BarcodeGeneratorScreen> {
   }
 
   bool _isValidBarcodeForType(String barcode, String type) {
-    switch (type) {
-      case 'EAN13':
-        return barcode.length == 13 && RegExp(r'^\d{13}$').hasMatch(barcode);
-      case 'EAN8':
-        return barcode.length == 8 && RegExp(r'^\d{8}$').hasMatch(barcode);
-      case 'UPC-A':
-        return barcode.length == 12 && RegExp(r'^\d{12}$').hasMatch(barcode);
-      case 'Code39':
-        return RegExp(r'^[0-9A-Z\-. $\/+%]+$').hasMatch(barcode);
-      case 'Code128':
-        return barcode.isNotEmpty;
-      default:
-        return false;
+    return _barcodeService.isValidForBarcodeType(barcode, type);
+  }
+
+  void _fixEAN13Checksum() {
+    if (selectedBarcodeType == 'EAN13' &&
+        _barcodeController.text.length == 13 &&
+        RegExp(r'^\d{13}$').hasMatch(_barcodeController.text)) {
+      try {
+        final fixedBarcode =
+            _barcodeService.fixEAN13Checksum(_barcodeController.text);
+        setState(() {
+          _barcodeController.text = fixedBarcode;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('EAN-13 checksum fixed'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error fixing checksum: $e'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _printBarcode() async {
+    if (_barcodeController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a barcode to print')),
+      );
+      return;
+    }
+
+    if (!_isValidBarcodeForType(_barcodeController.text, selectedBarcodeType)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invalid barcode for $selectedBarcodeType')),
+      );
+      return;
+    }
+
+    try {
+      if (currentProduct != null) {
+        // Print with product information
+        await _printService.printProductBarcode(currentProduct!);
+      } else {
+        // Print just the barcode
+        await _printService.printBarcode(_barcodeController.text);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Barcode processed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to print barcode: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareBarcode() async {
+    if (_barcodeController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a barcode to share')),
+      );
+      return;
+    }
+
+    if (!_isValidBarcodeForType(_barcodeController.text, selectedBarcodeType)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invalid barcode for $selectedBarcodeType')),
+      );
+      return;
+    }
+
+    try {
+      final productName = currentProduct?.name;
+      await _printService.shareBarcodeAsPdf(
+        _barcodeController.text,
+        productName: productName,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to share barcode: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -135,6 +228,23 @@ class _BarcodeGeneratorScreenState extends State<BarcodeGeneratorScreen> {
                   fontSize: 14,
                 ),
               ),
+              if (selectedBarcodeType == 'EAN13' &&
+                  barcode.length == 13 &&
+                  RegExp(r'^\d{13}$').hasMatch(barcode)) ...[
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _fixEAN13Checksum,
+                  icon: const Icon(Icons.auto_fix_high, size: 16),
+                  label: const Text('Fix Checksum'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -159,6 +269,10 @@ class _BarcodeGeneratorScreenState extends State<BarcodeGeneratorScreen> {
         ),
       );
     } catch (e) {
+      // Check if it's a checksum error for EAN-13
+      bool isChecksumError = e.toString().contains('checksum') ||
+          e.toString().contains('should be');
+
       return Container(
         height: 120,
         decoration: BoxDecoration(
@@ -176,12 +290,29 @@ class _BarcodeGeneratorScreenState extends State<BarcodeGeneratorScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Error generating barcode',
+                isChecksumError
+                    ? 'Invalid EAN-13 checksum'
+                    : 'Error generating barcode',
                 style: TextStyle(
                   color: Colors.orange.shade600,
                   fontSize: 14,
                 ),
               ),
+              if (isChecksumError && selectedBarcodeType == 'EAN13') ...[
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _fixEAN13Checksum,
+                  icon: const Icon(Icons.auto_fix_high, size: 16),
+                  label: const Text('Fix Checksum'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -252,6 +383,17 @@ class _BarcodeGeneratorScreenState extends State<BarcodeGeneratorScreen> {
           IconButton(
             icon: const Icon(Icons.copy),
             onPressed: _copyToClipboard,
+            tooltip: 'Copy to clipboard',
+          ),
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: _shareBarcode,
+            tooltip: 'Share as PDF',
+          ),
+          IconButton(
+            icon: const Icon(Icons.print),
+            onPressed: _printBarcode,
+            tooltip: 'Print barcode',
           ),
         ],
       ),
@@ -276,7 +418,7 @@ class _BarcodeGeneratorScreenState extends State<BarcodeGeneratorScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                          'Price: \$${currentProduct!.price.toStringAsFixed(2)}'),
+                          'Price: ₱${currentProduct!.price.toStringAsFixed(2)}'),
                       Text('Category: ${currentProduct!.category}'),
                       Text('Stock: ${currentProduct!.stockQuantity}'),
                     ],

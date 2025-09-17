@@ -295,6 +295,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                               },
                               onDelete: () => _deleteProduct(product),
                               onStockAdjust: () => _adjustStock(product),
+                              onRefresh: _loadProducts,
                             );
                           },
                         ),
@@ -328,6 +329,7 @@ class _ProductListItem extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onStockAdjust;
+  final VoidCallback onRefresh;
 
   const _ProductListItem({
     required this.product,
@@ -335,6 +337,7 @@ class _ProductListItem extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onStockAdjust,
+    required this.onRefresh,
   });
 
   @override
@@ -387,7 +390,7 @@ class _ProductListItem extends StatelessWidget {
           ],
         ),
         trailing: PopupMenuButton<String>(
-          onSelected: (value) {
+          onSelected: (value) async {
             switch (value) {
               case 'edit':
                 onEdit();
@@ -396,11 +399,20 @@ class _ProductListItem extends StatelessWidget {
                 onStockAdjust();
                 break;
               case 'barcode':
-                Navigator.pushNamed(
+                final updatedProduct = await Navigator.pushNamed(
                   context,
                   '/barcode_generator',
                   arguments: product,
-                );
+                ) as Product?;
+
+                if (updatedProduct != null) {
+                  // Refresh the inventory list to show updated barcode
+                  onRefresh();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Barcode updated successfully')),
+                  );
+                }
                 break;
               case 'delete':
                 onDelete();

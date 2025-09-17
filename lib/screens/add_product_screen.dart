@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../models/product.dart';
 import '../services/database_helper.dart';
 import '../services/barcode_service.dart';
+import '../services/print_service.dart';
 import '../core/config/philippines_config.dart';
 
 class AddProductScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
   final DatabaseHelper _databaseHelper = DatabaseHelper();
   final BarcodeService _barcodeService = BarcodeService();
+  final PrintService _printService = PrintService();
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _barcodeController = TextEditingController();
@@ -130,7 +132,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${product.name} added successfully')),
         );
-        Navigator.of(context).pop(product);
+
+        // Ask user if they want to print the barcode
+        _showPrintBarcodeDialog(product);
       }
     } catch (e) {
       if (mounted) {
@@ -143,6 +147,126 @@ class _AddProductScreenState extends State<AddProductScreen> {
         setState(() {
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  void _showPrintBarcodeDialog(Product product) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Print Barcode'),
+          content:
+              Text('Would you like to print the barcode for ${product.name}?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pop(product); // Return to previous screen
+              },
+              child: const Text('No'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                try {
+                  await _printService.printProductBarcode(product);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Barcode processed successfully'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to print: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+                if (mounted) {
+                  Navigator.of(context).pop(product);
+                }
+              },
+              child: const Text('Yes'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                try {
+                  await _printService.shareBarcodeAsPdf(
+                    product.barcode,
+                    productName: product.name,
+                  );
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to share: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+                if (mounted) {
+                  Navigator.of(context).pop(product);
+                }
+              },
+              child: const Text('Share PDF'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _printCurrentBarcode() async {
+    if (_barcodeController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a barcode first')),
+      );
+      return;
+    }
+
+    if (!_barcodeService.isValidBarcode(_barcodeController.text.trim())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid barcode format')),
+      );
+      return;
+    }
+
+    try {
+      final productName = _nameController.text.trim().isNotEmpty
+          ? _nameController.text.trim()
+          : null;
+
+      await _printService.printBarcode(
+        _barcodeController.text.trim(),
+        productName: productName,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Barcode processed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to print barcode: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -218,6 +342,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         icon: const Icon(Icons.refresh),
                         onPressed: _generateBarcode,
                         tooltip: 'Generate barcode',
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.print),
+                        onPressed: _printCurrentBarcode,
+                        tooltip: 'Print barcode',
                       ),
                     ],
                   ),

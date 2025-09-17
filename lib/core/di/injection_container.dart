@@ -2,6 +2,8 @@ import 'package:get_it/get_it.dart';
 import 'package:logger/logger.dart';
 import '../../services/database_helper.dart';
 import '../../services/barcode_service.dart';
+import '../../services/print_service.dart';
+import '../../services/notification_service.dart';
 import '../../repositories/product_repository.dart';
 import '../../repositories/sales_repository.dart';
 import '../../repositories/inventory_repository.dart';
@@ -27,6 +29,8 @@ Future<void> init() async {
 
   sl.registerLazySingleton<DatabaseHelper>(() => DatabaseHelper());
   sl.registerLazySingleton<BarcodeService>(() => BarcodeService());
+  sl.registerLazySingleton<PrintService>(() => PrintService());
+  sl.registerLazySingleton<NotificationService>(() => NotificationService());
   sl.registerLazySingleton<CacheService>(() => CacheService());
   sl.registerLazySingleton<ErrorHandlerService>(
       () => ErrorHandlerService(sl()));

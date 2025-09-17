@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
+import 'package:flutter/foundation.dart';
 import '../models/product.dart';
 import '../models/sale_item.dart';
 import '../models/inventory_count.dart';
@@ -21,14 +25,52 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    String path = join(await getDatabasesPath(), 'pos_inventory.db');
+    // Get the documents directory for better persistence
+    Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    String path = join(documentsDirectory.path, 'pos_inventory.db');
 
-    return await openDatabase(
-      path,
-      version: 2,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-    );
+    if (kDebugMode) {
+      _logger.i('Database path: $path');
+      _logger.i('Database file exists: ${await File(path).exists()}');
+    }
+
+    try {
+      final db = await openDatabase(
+        path,
+        version: 3,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+        onOpen: (database) async {
+          if (kDebugMode) {
+            _logger.i('Database opened successfully');
+            await _logDatabaseInfo(database);
+          }
+        },
+      );
+
+      if (kDebugMode) {
+        _logger.i('Database initialized successfully');
+      }
+
+      return db;
+    } catch (e) {
+      _logger.e('Error initializing database: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _logDatabaseInfo(Database db) async {
+    try {
+      final tables = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
+      _logger.i('Available tables: ${tables.map((t) => t['name']).join(', ')}');
+
+      final productCount =
+          await db.rawQuery('SELECT COUNT(*) as count FROM products');
+      _logger.i('Products in database: ${productCount.first['count']}');
+    } catch (e) {
+      _logger.w('Could not log database info: $e');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -57,7 +99,10 @@ class DatabaseHelper {
         total REAL NOT NULL,
         timestamp INTEGER NOT NULL,
         customerName TEXT,
-        paymentMethod TEXT NOT NULL
+        paymentMethod TEXT NOT NULL,
+        isVoided INTEGER NOT NULL DEFAULT 0,
+        voidedAt INTEGER,
+        voidReason TEXT
       )
     ''');
 
@@ -103,9 +148,43 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
+      // Clean up any existing triggers that might cause conflicts
+      await _cleanupOldTriggers(db);
+
       // Add indexes and FTS table for existing databases
       await _createIndexes(db);
       await _createFtsTable(db);
+    }
+
+    if (oldVersion < 3) {
+      // Add void-related columns to sales table
+      try {
+        await db.execute(
+            'ALTER TABLE sales ADD COLUMN isVoided INTEGER NOT NULL DEFAULT 0');
+        await db.execute('ALTER TABLE sales ADD COLUMN voidedAt INTEGER');
+        await db.execute('ALTER TABLE sales ADD COLUMN voidReason TEXT');
+        _logger.i('Added void columns to sales table');
+      } catch (e) {
+        _logger.w('Error adding void columns (may already exist): $e');
+      }
+    }
+  }
+
+  Future<void> _cleanupOldTriggers(Database db) async {
+    try {
+      // Drop any existing FTS triggers
+      await db.execute('DROP TRIGGER IF EXISTS products_fts_insert');
+      await db.execute('DROP TRIGGER IF EXISTS products_fts_update');
+      await db.execute('DROP TRIGGER IF EXISTS products_fts_delete');
+
+      // Drop any existing search triggers
+      await db.execute('DROP TRIGGER IF EXISTS products_search_insert');
+      await db.execute('DROP TRIGGER IF EXISTS products_search_update');
+      await db.execute('DROP TRIGGER IF EXISTS products_search_delete');
+
+      _logger.i('Cleaned up old triggers');
+    } catch (e) {
+      _logger.w('Error cleaning up old triggers: $e');
     }
   }
 
@@ -156,6 +235,8 @@ class DatabaseHelper {
   }
 
   Future<void> _createFtsTable(Database db) async {
+    bool ftsEnabled = false;
+
     try {
       // Try to create FTS5 virtual table for full-text search
       await db.execute('''
@@ -170,9 +251,19 @@ class DatabaseHelper {
         )
       ''');
 
+      // Test if FTS5 table was created successfully
+      await db.execute('SELECT name FROM products_fts LIMIT 1');
+      ftsEnabled = true;
       _logger.i('FTS5 table created successfully');
     } catch (e) {
       _logger.w('FTS5 not supported, falling back to regular search: $e');
+      ftsEnabled = false;
+
+      // Clean up any partial FTS5 table
+      try {
+        await db.execute('DROP TABLE IF EXISTS products_fts');
+      } catch (_) {}
+
       // FTS5 not available, create a regular table for search indexing
       await db.execute('''
         CREATE TABLE IF NOT EXISTS products_search (
@@ -194,81 +285,98 @@ class DatabaseHelper {
       _logger.i('Fallback search table created successfully');
     }
 
-    // Create triggers to keep search table in sync
-    try {
-      // Try FTS5 triggers first
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS products_fts_insert AFTER INSERT ON products BEGIN
-          INSERT INTO products_fts(id, name, barcode, category, description)
-          VALUES (new.id, new.name, new.barcode, new.category, new.description);
-        END
-      ''');
+    // Create triggers based on which table was created successfully
+    if (ftsEnabled) {
+      try {
+        // Create FTS5 triggers
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS products_fts_insert AFTER INSERT ON products BEGIN
+            INSERT INTO products_fts(id, name, barcode, category, description)
+            VALUES (new.id, new.name, new.barcode, new.category, new.description);
+          END
+        ''');
 
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS products_fts_update AFTER UPDATE ON products BEGIN
-          UPDATE products_fts SET 
-            name = new.name,
-            barcode = new.barcode,
-            category = new.category,
-            description = new.description
-          WHERE id = new.id;
-        END
-      ''');
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS products_fts_update AFTER UPDATE ON products BEGIN
+            UPDATE products_fts SET 
+              name = new.name,
+              barcode = new.barcode,
+              category = new.category,
+              description = new.description
+            WHERE id = new.id;
+          END
+        ''');
 
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS products_fts_delete AFTER DELETE ON products BEGIN
-          DELETE FROM products_fts WHERE id = old.id;
-        END
-      ''');
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS products_fts_delete AFTER DELETE ON products BEGIN
+            DELETE FROM products_fts WHERE id = old.id;
+          END
+        ''');
 
-      // Populate FTS table with existing data
-      await db.execute('''
-        INSERT OR IGNORE INTO products_fts(id, name, barcode, category, description)
-        SELECT id, name, barcode, category, description FROM products
-      ''');
+        // Populate FTS table with existing data
+        await db.execute('''
+          INSERT OR IGNORE INTO products_fts(id, name, barcode, category, description)
+          SELECT id, name, barcode, category, description FROM products
+        ''');
 
-      _logger.i('FTS5 triggers created successfully');
-    } catch (e) {
-      _logger.w('Creating fallback search triggers: $e');
+        _logger.i('FTS5 triggers created successfully');
+      } catch (e) {
+        _logger.e('Failed to create FTS5 triggers: $e');
+        // If triggers fail, disable FTS and fall back
+        ftsEnabled = false;
+        try {
+          await db.execute('DROP TABLE IF EXISTS products_fts');
+          await db.execute('DROP TRIGGER IF EXISTS products_fts_insert');
+          await db.execute('DROP TRIGGER IF EXISTS products_fts_update');
+          await db.execute('DROP TRIGGER IF EXISTS products_fts_delete');
+        } catch (_) {}
+      }
+    }
+
+    if (!ftsEnabled) {
       // Create fallback triggers for regular search table
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS products_search_insert AFTER INSERT ON products BEGIN
+      try {
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS products_search_insert AFTER INSERT ON products BEGIN
+            INSERT OR REPLACE INTO products_search(id, name, barcode, category, description, search_text)
+            VALUES (new.id, new.name, new.barcode, new.category, new.description, 
+                    LOWER(new.name || ' ' || COALESCE(new.barcode, '') || ' ' || 
+                          COALESCE(new.category, '') || ' ' || COALESCE(new.description, '')));
+          END
+        ''');
+
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS products_search_update AFTER UPDATE ON products BEGIN
+            UPDATE products_search SET 
+              name = new.name,
+              barcode = new.barcode,
+              category = new.category,
+              description = new.description,
+              search_text = LOWER(new.name || ' ' || COALESCE(new.barcode, '') || ' ' || 
+                                 COALESCE(new.category, '') || ' ' || COALESCE(new.description, ''))
+            WHERE id = new.id;
+          END
+        ''');
+
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS products_search_delete AFTER DELETE ON products BEGIN
+            DELETE FROM products_search WHERE id = old.id;
+          END
+        ''');
+
+        // Populate search table with existing data
+        await db.execute('''
           INSERT OR REPLACE INTO products_search(id, name, barcode, category, description, search_text)
-          VALUES (new.id, new.name, new.barcode, new.category, new.description, 
-                  LOWER(new.name || ' ' || COALESCE(new.barcode, '') || ' ' || 
-                        COALESCE(new.category, '') || ' ' || COALESCE(new.description, '')));
-        END
-      ''');
+          SELECT id, name, barcode, category, description,
+                 LOWER(name || ' ' || COALESCE(barcode, '') || ' ' || 
+                       COALESCE(category, '') || ' ' || COALESCE(description, ''))
+          FROM products
+        ''');
 
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS products_search_update AFTER UPDATE ON products BEGIN
-          UPDATE products_search SET 
-            name = new.name,
-            barcode = new.barcode,
-            category = new.category,
-            description = new.description,
-            search_text = LOWER(new.name || ' ' || COALESCE(new.barcode, '') || ' ' || 
-                               COALESCE(new.category, '') || ' ' || COALESCE(new.description, ''))
-          WHERE id = new.id;
-        END
-      ''');
-
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS products_search_delete AFTER DELETE ON products BEGIN
-          DELETE FROM products_search WHERE id = old.id;
-        END
-      ''');
-
-      // Populate search table with existing data
-      await db.execute('''
-        INSERT OR REPLACE INTO products_search(id, name, barcode, category, description, search_text)
-        SELECT id, name, barcode, category, description,
-               LOWER(name || ' ' || COALESCE(barcode, '') || ' ' || 
-                     COALESCE(category, '') || ' ' || COALESCE(description, ''))
-        FROM products
-      ''');
-
-      _logger.i('Fallback search triggers created successfully');
+        _logger.i('Fallback search triggers created successfully');
+      } catch (e) {
+        _logger.e('Failed to create fallback search triggers: $e');
+      }
     }
   }
 
@@ -408,28 +516,8 @@ class DatabaseHelper {
   }
 
   Future<List<Sale>> getAllSales({int? limit, int? offset}) async {
-    final db = await database;
-    final List<Map<String, dynamic>> salesMaps = await db.query(
-      'sales',
-      orderBy: 'timestamp DESC',
-      limit: limit,
-      offset: offset,
-    );
-
-    List<Sale> sales = [];
-    for (Map<String, dynamic> saleMap in salesMaps) {
-      final List<Map<String, dynamic>> itemsMaps = await db.query(
-        'sale_items',
-        where: 'saleId = ?',
-        whereArgs: [saleMap['id']],
-      );
-
-      List<SaleItem> items =
-          itemsMaps.map((map) => SaleItem.fromMap(map)).toList();
-      sales.add(Sale.fromMap(saleMap, items));
-    }
-
-    return sales;
+    // By default, exclude voided sales
+    return getNonVoidedSales(limit: limit, offset: offset);
   }
 
   Future<List<Sale>> getSalesByDateRange(DateTime startDate, DateTime endDate,
@@ -437,7 +525,7 @@ class DatabaseHelper {
     final db = await database;
     final List<Map<String, dynamic>> salesMaps = await db.query(
       'sales',
-      where: 'timestamp BETWEEN ? AND ?',
+      where: 'timestamp BETWEEN ? AND ? AND isVoided = 0',
       whereArgs: [
         startDate.millisecondsSinceEpoch,
         endDate.millisecondsSinceEpoch
@@ -465,7 +553,8 @@ class DatabaseHelper {
 
   Future<int> getSalesCount() async {
     final db = await database;
-    final result = await db.rawQuery('SELECT COUNT(*) as count FROM sales');
+    final result = await db
+        .rawQuery('SELECT COUNT(*) as count FROM sales WHERE isVoided = 0');
     return result.first['count'] as int;
   }
 
@@ -490,6 +579,154 @@ class DatabaseHelper {
     }
 
     return null;
+  }
+
+  /// Void a sale - marks it as voided and restores inventory
+  Future<void> voidSale(String saleId, String reason) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      // Get the sale first
+      final saleData = await txn.query(
+        'sales',
+        where: 'id = ? AND isVoided = 0',
+        whereArgs: [saleId],
+      );
+
+      if (saleData.isEmpty) {
+        throw Exception('Sale not found or already voided');
+      }
+
+      // Get sale items to restore inventory
+      final saleItems = await txn.query(
+        'sale_items',
+        where: 'saleId = ?',
+        whereArgs: [saleId],
+      );
+
+      // Restore inventory for each item
+      for (final item in saleItems) {
+        await txn.rawUpdate('''
+          UPDATE products 
+          SET stockQuantity = stockQuantity + ?, 
+              updatedAt = ?
+          WHERE id = ?
+        ''', [
+          item['quantity'],
+          DateTime.now().millisecondsSinceEpoch,
+          item['productId'],
+        ]);
+      }
+
+      // Mark sale as voided
+      await txn.update(
+        'sales',
+        {
+          'isVoided': 1,
+          'voidedAt': DateTime.now().millisecondsSinceEpoch,
+          'voidReason': reason,
+        },
+        where: 'id = ?',
+        whereArgs: [saleId],
+      );
+    });
+
+    _logger.i('Sale $saleId voided: $reason');
+  }
+
+  /// Get all sales including voided ones with a flag
+  Future<List<Sale>> getAllSalesIncludingVoided(
+      {int? limit, int? offset}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> salesMaps = await db.query(
+      'sales',
+      orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
+    );
+
+    List<Sale> sales = [];
+    for (Map<String, dynamic> saleMap in salesMaps) {
+      final List<Map<String, dynamic>> itemsMaps = await db.query(
+        'sale_items',
+        where: 'saleId = ?',
+        whereArgs: [saleMap['id']],
+      );
+
+      List<SaleItem> items =
+          itemsMaps.map((map) => SaleItem.fromMap(map)).toList();
+      sales.add(Sale.fromMap(saleMap, items));
+    }
+
+    return sales;
+  }
+
+  /// Get only non-voided sales (default behavior)
+  Future<List<Sale>> getNonVoidedSales({int? limit, int? offset}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> salesMaps = await db.query(
+      'sales',
+      where: 'isVoided = 0',
+      orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
+    );
+
+    List<Sale> sales = [];
+    for (Map<String, dynamic> saleMap in salesMaps) {
+      final List<Map<String, dynamic>> itemsMaps = await db.query(
+        'sale_items',
+        where: 'saleId = ?',
+        whereArgs: [saleMap['id']],
+      );
+
+      List<SaleItem> items =
+          itemsMaps.map((map) => SaleItem.fromMap(map)).toList();
+      sales.add(Sale.fromMap(saleMap, items));
+    }
+
+    return sales;
+  }
+
+  /// Get sales totals for a specific date range (excluding voided sales)
+  Future<double> getSalesTotalByDateRange(
+      DateTime startDate, DateTime endDate) async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT SUM(total) as totalSales 
+      FROM sales 
+      WHERE timestamp BETWEEN ? AND ? AND isVoided = 0
+    ''', [startDate.millisecondsSinceEpoch, endDate.millisecondsSinceEpoch]);
+
+    final totalSales = result.first['totalSales'];
+    return totalSales != null ? (totalSales as num).toDouble() : 0.0;
+  }
+
+  /// Get today's sales total (excluding voided sales)
+  Future<double> getTodaysSalesTotal() async {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+    return getSalesTotalByDateRange(startOfDay, endOfDay);
+  }
+
+  /// Get count of voided sales
+  Future<int> getVoidedSalesCount() async {
+    final db = await database;
+    final result = await db
+        .rawQuery('SELECT COUNT(*) as count FROM sales WHERE isVoided = 1');
+    return result.first['count'] as int;
+  }
+
+  /// Get total amount of voided sales
+  Future<double> getVoidedSalesTotal() async {
+    final db = await database;
+    final result = await db.rawQuery(
+        'SELECT SUM(total) as totalVoided FROM sales WHERE isVoided = 1');
+
+    final totalVoided = result.first['totalVoided'];
+    return totalVoided != null ? (totalVoided as num).toDouble() : 0.0;
   }
 
   // ==================== INVENTORY COUNT OPERATIONS ====================
@@ -530,40 +767,52 @@ class DatabaseHelper {
       return getAllProducts(limit: limit, offset: offset);
     }
 
-    // First try FTS5 search
+    // Check if FTS5 table exists and try FTS5 search first
     try {
-      final List<Map<String, dynamic>> ftsResults = await db.rawQuery('''
-        SELECT p.* FROM products p
-        INNER JOIN products_fts fts ON p.id = fts.id
-        WHERE products_fts MATCH ?
-        ORDER BY rank
-        LIMIT ? OFFSET ?
-      ''', [query, limit ?? 100, offset ?? 0]);
+      // Check if FTS5 table exists
+      final tableCheck = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='products_fts'");
 
-      if (ftsResults.isNotEmpty) {
-        _logger.d('Using FTS5 search');
-        return List.generate(
-            ftsResults.length, (i) => Product.fromMap(ftsResults[i]));
+      if (tableCheck.isNotEmpty) {
+        final List<Map<String, dynamic>> ftsResults = await db.rawQuery('''
+          SELECT p.* FROM products p
+          INNER JOIN products_fts fts ON p.id = fts.id
+          WHERE products_fts MATCH ?
+          ORDER BY rank
+          LIMIT ? OFFSET ?
+        ''', [query, limit ?? 100, offset ?? 0]);
+
+        if (ftsResults.isNotEmpty) {
+          _logger.d('Using FTS5 search');
+          return List.generate(
+              ftsResults.length, (i) => Product.fromMap(ftsResults[i]));
+        }
       }
     } catch (e) {
-      _logger.w('FTS5 search not available, trying fallback search: $e');
+      _logger.w('FTS5 search failed: $e');
     }
 
     // Try fallback search table
     try {
-      final searchTerm = '%${query.toLowerCase()}%';
-      final List<Map<String, dynamic>> searchResults = await db.rawQuery('''
-        SELECT p.* FROM products p
-        INNER JOIN products_search ps ON p.id = ps.id
-        WHERE ps.search_text LIKE ?
-        ORDER BY p.name ASC
-        LIMIT ? OFFSET ?
-      ''', [searchTerm, limit ?? 100, offset ?? 0]);
+      // Check if fallback search table exists
+      final tableCheck = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='products_search'");
 
-      if (searchResults.isNotEmpty) {
-        _logger.d('Using fallback search table');
-        return List.generate(
-            searchResults.length, (i) => Product.fromMap(searchResults[i]));
+      if (tableCheck.isNotEmpty) {
+        final searchTerm = '%${query.toLowerCase()}%';
+        final List<Map<String, dynamic>> searchResults = await db.rawQuery('''
+          SELECT p.* FROM products p
+          INNER JOIN products_search ps ON p.id = ps.id
+          WHERE ps.search_text LIKE ?
+          ORDER BY p.name ASC
+          LIMIT ? OFFSET ?
+        ''', [searchTerm, limit ?? 100, offset ?? 0]);
+
+        if (searchResults.isNotEmpty) {
+          _logger.d('Using fallback search table');
+          return List.generate(
+              searchResults.length, (i) => Product.fromMap(searchResults[i]));
+        }
       }
     } catch (e) {
       _logger.w('Fallback search table failed: $e');
@@ -642,8 +891,240 @@ class DatabaseHelper {
   }
 
   Future<void> deleteDatabase() async {
-    String path = join(await getDatabasesPath(), 'pos_inventory.db');
+    Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    String path = join(documentsDirectory.path, 'pos_inventory.db');
     await databaseFactory.deleteDatabase(path);
     _database = null;
+  }
+
+  /// Forces database recreation by deleting and reinitializing
+  /// Use this to fix database corruption or trigger issues
+  Future<void> resetDatabase() async {
+    try {
+      await closeDatabase();
+      await deleteDatabase();
+      _logger.i('Database deleted successfully');
+
+      // Reinitialize database
+      await database;
+      _logger.i('Database recreated successfully');
+    } catch (e) {
+      _logger.e('Error resetting database: $e');
+      rethrow;
+    }
+  }
+
+  // ==================== BACKUP AND RESTORE ====================
+
+  /// Get the current database file path
+  Future<String> getDatabasePath() async {
+    Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    return join(documentsDirectory.path, 'pos_inventory.db');
+  }
+
+  /// Check if database file exists
+  Future<bool> databaseExists() async {
+    final path = await getDatabasePath();
+    return await File(path).exists();
+  }
+
+  /// Get database file size in bytes
+  Future<int> getDatabaseSize() async {
+    final path = await getDatabasePath();
+    final file = File(path);
+    if (await file.exists()) {
+      return await file.length();
+    }
+    return 0;
+  }
+
+  /// Export database to JSON for backup
+  Future<Map<String, dynamic>> exportDatabaseToJson() async {
+    try {
+      final db = await database;
+
+      _logger.i('Starting database export...');
+
+      // Export all tables
+      final products = await db.query('products');
+      final sales = await db.query('sales');
+      final saleItems = await db.query('sale_items');
+      final inventoryCounts = await db.query('inventory_counts');
+
+      final backup = {
+        'version': 2,
+        'exportDate': DateTime.now().toIso8601String(),
+        'tables': {
+          'products': products,
+          'sales': sales,
+          'sale_items': saleItems,
+          'inventory_counts': inventoryCounts,
+        }
+      };
+
+      _logger.i(
+          'Database export completed. Products: ${products.length}, Sales: ${sales.length}');
+      return backup;
+    } catch (e) {
+      _logger.e('Error exporting database: $e');
+      rethrow;
+    }
+  }
+
+  /// Save backup to external storage
+  Future<String> createBackupFile() async {
+    try {
+      final backup = await exportDatabaseToJson();
+      final jsonString = jsonEncode(backup);
+
+      // Get external storage directory
+      Directory? externalDir;
+      if (Platform.isAndroid) {
+        externalDir = await getExternalStorageDirectory();
+      } else {
+        externalDir = await getApplicationDocumentsDirectory();
+      }
+
+      if (externalDir == null) {
+        throw Exception('Could not access storage directory');
+      }
+
+      final backupDir = Directory(join(externalDir.path, 'POS_Backups'));
+      if (!await backupDir.exists()) {
+        await backupDir.create(recursive: true);
+      }
+
+      final fileName =
+          'pos_backup_${DateTime.now().millisecondsSinceEpoch}.json';
+      final backupFile = File(join(backupDir.path, fileName));
+
+      await backupFile.writeAsString(jsonString);
+
+      _logger.i('Backup created: ${backupFile.path}');
+      return backupFile.path;
+    } catch (e) {
+      _logger.e('Error creating backup file: $e');
+      rethrow;
+    }
+  }
+
+  /// Restore database from JSON backup
+  Future<void> restoreFromJson(Map<String, dynamic> backup) async {
+    try {
+      _logger.i('Starting database restore...');
+
+      final db = await database;
+
+      // Start transaction
+      await db.transaction((txn) async {
+        // Clear existing data
+        await txn.delete('inventory_counts');
+        await txn.delete('sale_items');
+        await txn.delete('sales');
+        await txn.delete('products');
+
+        // Restore products
+        final products = backup['tables']['products'] as List<dynamic>;
+        for (final product in products) {
+          await txn.insert('products', Map<String, dynamic>.from(product));
+        }
+
+        // Restore sales
+        final sales = backup['tables']['sales'] as List<dynamic>;
+        for (final sale in sales) {
+          await txn.insert('sales', Map<String, dynamic>.from(sale));
+        }
+
+        // Restore sale items
+        final saleItems = backup['tables']['sale_items'] as List<dynamic>;
+        for (final item in saleItems) {
+          await txn.insert('sale_items', Map<String, dynamic>.from(item));
+        }
+
+        // Restore inventory counts
+        final inventoryCounts =
+            backup['tables']['inventory_counts'] as List<dynamic>;
+        for (final count in inventoryCounts) {
+          await txn.insert(
+              'inventory_counts', Map<String, dynamic>.from(count));
+        }
+      });
+
+      _logger.i(
+          'Database restore completed. Products: ${(backup['tables']['products'] as List).length}');
+    } catch (e) {
+      _logger.e('Error restoring database: $e');
+      rethrow;
+    }
+  }
+
+  /// Restore database from backup file
+  Future<void> restoreFromBackupFile(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        throw Exception('Backup file not found: $filePath');
+      }
+
+      final jsonString = await file.readAsString();
+      final backup = jsonDecode(jsonString) as Map<String, dynamic>;
+
+      await restoreFromJson(backup);
+      _logger.i('Database restored from: $filePath');
+    } catch (e) {
+      _logger.e('Error restoring from backup file: $e');
+      rethrow;
+    }
+  }
+
+  /// Verify database integrity
+  Future<bool> verifyDatabaseIntegrity() async {
+    try {
+      final db = await database;
+      final result = await db.rawQuery('PRAGMA integrity_check');
+      final isOk = result.isNotEmpty && result.first.values.first == 'ok';
+
+      if (kDebugMode) {
+        _logger.i('Database integrity check: ${isOk ? 'PASSED' : 'FAILED'}');
+      }
+
+      return isOk;
+    } catch (e) {
+      _logger.e('Error checking database integrity: $e');
+      return false;
+    }
+  }
+
+  /// Get database statistics
+  Future<Map<String, int>> getDatabaseStats() async {
+    try {
+      final db = await database;
+
+      final productCount = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM products')) ??
+          0;
+
+      final salesCount = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM sales')) ??
+          0;
+
+      final saleItemsCount = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM sale_items')) ??
+          0;
+
+      final inventoryCountsCount = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM inventory_counts')) ??
+          0;
+
+      return {
+        'products': productCount,
+        'sales': salesCount,
+        'sale_items': saleItemsCount,
+        'inventory_counts': inventoryCountsCount,
+      };
+    } catch (e) {
+      _logger.e('Error getting database stats: $e');
+      return {};
+    }
   }
 }

@@ -87,6 +87,9 @@ class Sale {
   final DateTime timestamp;
   final String? customerName;
   final String paymentMethod;
+  final bool isVoided;
+  final DateTime? voidedAt;
+  final String? voidReason;
 
   Sale({
     required this.id,
@@ -97,6 +100,9 @@ class Sale {
     required this.timestamp,
     this.customerName,
     required this.paymentMethod,
+    this.isVoided = false,
+    this.voidedAt,
+    this.voidReason,
   });
 
   // Convert Sale to Map for database storage
@@ -109,6 +115,9 @@ class Sale {
       'timestamp': timestamp.millisecondsSinceEpoch,
       'customerName': customerName,
       'paymentMethod': paymentMethod,
+      'isVoided': isVoided ? 1 : 0,
+      'voidedAt': voidedAt?.millisecondsSinceEpoch,
+      'voidReason': voidReason,
     };
   }
 
@@ -123,6 +132,40 @@ class Sale {
       timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp']),
       customerName: map['customerName'],
       paymentMethod: map['paymentMethod'],
+      isVoided: (map['isVoided'] ?? 0) == 1,
+      voidedAt: map['voidedAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['voidedAt'])
+          : null,
+      voidReason: map['voidReason'],
+    );
+  }
+
+  // Create a copy of Sale with updated fields (for voiding)
+  Sale copyWith({
+    String? id,
+    List<SaleItem>? items,
+    double? subtotal,
+    double? tax,
+    double? total,
+    DateTime? timestamp,
+    String? customerName,
+    String? paymentMethod,
+    bool? isVoided,
+    DateTime? voidedAt,
+    String? voidReason,
+  }) {
+    return Sale(
+      id: id ?? this.id,
+      items: items ?? this.items,
+      subtotal: subtotal ?? this.subtotal,
+      tax: tax ?? this.tax,
+      total: total ?? this.total,
+      timestamp: timestamp ?? this.timestamp,
+      customerName: customerName ?? this.customerName,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      isVoided: isVoided ?? this.isVoided,
+      voidedAt: voidedAt ?? this.voidedAt,
+      voidReason: voidReason ?? this.voidReason,
     );
   }
 

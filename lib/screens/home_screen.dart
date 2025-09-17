@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/database_helper.dart';
+import '../services/notification_service.dart';
 import '../core/config/philippines_config.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -12,6 +13,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final DatabaseHelper _databaseHelper = DatabaseHelper();
+  final NotificationService _notificationService = NotificationService();
 
   int _totalProducts = 0;
   int _lowStockProducts = 0;
@@ -26,6 +28,17 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadDashboardData();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh data when returning to this screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadDashboardData();
+      }
+    });
+  }
+
   Future<void> _loadDashboardData() async {
     setState(() {
       _isLoading = true;
@@ -34,24 +47,32 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // Load products data
       final products = await _databaseHelper.getAllProducts();
+      print('Home Screen - Loaded ${products.length} products');
       final lowStockProducts = await _databaseHelper.getLowStockProducts();
 
-      // Load today's sales data
-      final sales = await _databaseHelper.getAllSales();
+      // Load today's sales data (excluding voided sales)
       final today = DateTime.now();
-      final todaysSales = sales.where((sale) {
-        return sale.timestamp.year == today.year &&
-            sale.timestamp.month == today.month &&
-            sale.timestamp.day == today.day;
-      }).toList();
+      final startOfDay = DateTime(today.year, today.month, today.day);
+      final endOfDay = DateTime(today.year, today.month, today.day, 23, 59, 59);
+      final todaysSales =
+          await _databaseHelper.getSalesByDateRange(startOfDay, endOfDay);
+      final todaysSalesTotal = await _databaseHelper.getTodaysSalesTotal();
 
       setState(() {
         _totalProducts = products.length;
         _lowStockProducts = lowStockProducts.length;
         _outOfStockProducts = products.where((p) => p.isOutOfStock).length;
-        _todaysSales = todaysSales.fold(0.0, (sum, sale) => sum + sale.total);
+        _todaysSales = todaysSalesTotal;
         _todaysSalesCount = todaysSales.length;
         _isLoading = false;
+      });
+
+      // Show inventory notifications after loading
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _notificationService.showInventorySummaryNotification(
+              context, products);
+        }
       });
     } catch (e) {
       setState(() {
@@ -77,6 +98,25 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadDashboardData,
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'debug') {
+                Navigator.pushNamed(context, '/database_debug');
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'debug',
+                child: Row(
+                  children: [
+                    Icon(Icons.bug_report, size: 20),
+                    SizedBox(width: 8),
+                    Text('Database Debug'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -12,6 +12,7 @@ import 'screens/barcode_scanner_screen.dart';
 import 'screens/barcode_generator_screen.dart';
 import 'screens/inventory_count_screen.dart';
 import 'screens/sales_history_screen.dart';
+import 'screens/database_debug_screen.dart';
 import 'models/product.dart';
 
 void main() async {
@@ -108,6 +109,7 @@ class POSInventoryApp extends StatelessWidget {
         '/inventory_count': (context) => const InventoryCountScreen(),
         '/sales_history': (context) => const SalesHistoryScreen(),
         '/reports': (context) => const ReportsScreen(),
+        '/database_debug': (context) => const DatabaseDebugScreen(),
       },
     );
   }

@@ -55,13 +55,39 @@ class BarcodeService {
     final now = DateTime.now();
     final timestamp = now.millisecondsSinceEpoch.toString();
 
-    // Take last 12 digits to create a unique barcode
-    String barcode = timestamp.substring(timestamp.length - 12);
+    // Take last 11 digits to create a unique barcode (we need 12 digits for EAN-13)
+    String barcode = timestamp.substring(timestamp.length - 11);
 
     // Ensure it starts with '2' to indicate internal/store-generated
     barcode = '2$barcode';
 
-    return barcode.substring(0, 13); // EAN-13 format
+    // Calculate and append EAN-13 checksum
+    barcode = _generateEAN13WithChecksum(barcode);
+
+    return barcode; // Valid EAN-13 format with checksum
+  }
+
+  // Generate valid EAN-13 barcode with correct checksum
+  String _generateEAN13WithChecksum(String first12Digits) {
+    if (first12Digits.length != 12) {
+      throw ArgumentError(
+          'Must provide exactly 12 digits for EAN-13 generation');
+    }
+
+    List<int> digits =
+        first12Digits.split('').map((e) => int.parse(e)).toList();
+
+    int sum = 0;
+    for (int i = 0; i < 12; i++) {
+      if (i % 2 == 0) {
+        sum += digits[i];
+      } else {
+        sum += digits[i] * 3;
+      }
+    }
+
+    int checkDigit = (10 - (sum % 10)) % 10;
+    return first12Digits + checkDigit.toString();
   }
 
   // Validate EAN-13 checksum
@@ -106,6 +132,37 @@ class BarcodeService {
   // Provide haptic feedback for successful scan
   Future<void> provideScanFeedback() async {
     await HapticFeedback.mediumImpact();
+  }
+
+  // Fix invalid EAN-13 barcode by correcting the checksum
+  String fixEAN13Checksum(String barcode) {
+    if (barcode.length != 13) {
+      throw ArgumentError('Barcode must be 13 digits for EAN-13 fix');
+    }
+
+    // Take first 12 digits and recalculate checksum
+    String first12 = barcode.substring(0, 12);
+    return _generateEAN13WithChecksum(first12);
+  }
+
+  // Check if barcode is valid for specific barcode type (including checksum validation)
+  bool isValidForBarcodeType(String barcode, String type) {
+    switch (type) {
+      case 'EAN13':
+        return barcode.length == 13 &&
+            RegExp(r'^\d{13}$').hasMatch(barcode) &&
+            validateEAN13(barcode);
+      case 'EAN8':
+        return barcode.length == 8 && RegExp(r'^\d{8}$').hasMatch(barcode);
+      case 'UPC-A':
+        return barcode.length == 12 && RegExp(r'^\d{12}$').hasMatch(barcode);
+      case 'Code39':
+        return RegExp(r'^[0-9A-Z\-. $\/+%]+$').hasMatch(barcode);
+      case 'Code128':
+        return barcode.isNotEmpty;
+      default:
+        return false;
+    }
   }
 
   // Get barcode type based on format
