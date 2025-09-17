@@ -48,19 +48,16 @@ final currentSaleProvider = StateProvider<Map<String, dynamic>>((ref) => {
       'taxRate': PhilippinesConfig.vatRate,
     });
 
-// Cart Totals
+// Cart Totals (VAT already included in item prices)
 final cartTotalsProvider = Provider<Map<String, double>>((ref) {
   final cartItems = ref.watch(cartProvider);
-  final currentSale = ref.watch(currentSaleProvider);
-  final taxRate = currentSale['taxRate'] as double;
 
   final subtotal = cartItems.fold(0.0, (sum, item) => sum + item.totalPrice);
-  final tax = subtotal * taxRate;
-  final total = subtotal + tax;
+  final total = subtotal; // VAT already included in prices
 
   return {
     'subtotal': subtotal,
-    'tax': tax,
+    'tax': 0.0, // VAT included in item prices
     'total': total,
   };
 });

@@ -9,10 +9,10 @@ class PricingService {
   static const double defaultTaxRate = PhilippinesConfig.vatRate; // 12% VAT
   static const double maxDiscountPercent = PhilippinesConfig.maxDiscountPercent;
 
-  // Calculate sale totals
+  // Calculate sale totals (VAT already included in item prices)
   SaleCalculation calculateSaleTotal(
     List<SaleItem> items, {
-    double taxRate = defaultTaxRate,
+    double taxRate = 0.0, // VAT already included in prices
     double discountPercent = 0.0,
     double discountAmount = 0.0,
   }) {
@@ -40,8 +40,8 @@ class PricingService {
     discount = discount > subtotal ? subtotal : discount;
 
     final discountedSubtotal = subtotal - discount;
-    final tax = discountedSubtotal * taxRate;
-    final total = discountedSubtotal + tax;
+    final tax = 0.0; // VAT already included in item prices
+    final total = discountedSubtotal; // No additional tax to add
 
     return SaleCalculation(
       subtotal: subtotal,

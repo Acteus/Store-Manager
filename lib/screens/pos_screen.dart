@@ -27,7 +27,7 @@ class _POSScreenState extends State<POSScreen> {
   bool _isLoading = true;
   bool _isProcessingSale = false;
   String _paymentMethod = 'Cash';
-  final double _taxRate = PhilippinesConfig.vatRate; // 12% VAT rate
+  // VAT is already included in item prices, no separate calculation needed
 
   final List<String> _paymentMethods = PhilippinesConfig.paymentMethods;
 
@@ -35,6 +35,17 @@ class _POSScreenState extends State<POSScreen> {
   void initState() {
     super.initState();
     _loadProducts();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Refresh products when returning to this screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadProducts();
+      }
+    });
   }
 
   Future<void> _loadProducts() async {
@@ -214,12 +225,8 @@ class _POSScreenState extends State<POSScreen> {
     return _cartItems.fold(0.0, (sum, item) => sum + item.totalPrice);
   }
 
-  double get _tax {
-    return _subtotal * _taxRate;
-  }
-
   double get _total {
-    return _subtotal + _tax;
+    return _subtotal; // VAT already included in item prices
   }
 
   Future<void> _processSale() async {
@@ -239,7 +246,7 @@ class _POSScreenState extends State<POSScreen> {
         id: const Uuid().v4(),
         items: _cartItems,
         subtotal: _subtotal,
-        tax: _tax,
+        tax: 0.0, // VAT already included in item prices
         total: _total,
         timestamp: DateTime.now(),
         customerName: _customerController.text.trim().isEmpty
@@ -331,33 +338,24 @@ class _POSScreenState extends State<POSScreen> {
                     ),
                   )),
               const Divider(),
-              // Net Amount (VAT Exclusive)
+              // Total Amount (VAT already included in item prices)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('VAT Exclusive Amount:'),
-                  Text(PhilippinesConfig.formatCurrency(
-                      PhilippinesConfig.calculateNetFromGross(sale.total))),
-                ],
-              ),
-              // VAT Amount
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('${PhilippinesConfig.formatVatText()}:'),
-                  Text(PhilippinesConfig.formatCurrency(sale.tax)),
-                ],
-              ),
-              const Divider(),
-              // Total (VAT Inclusive)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Total Amount (VAT Inclusive):',
+                  const Text('Total Amount:',
                       style: TextStyle(fontWeight: FontWeight.bold)),
                   Text(PhilippinesConfig.formatCurrency(sale.total),
                       style: const TextStyle(fontWeight: FontWeight.bold)),
                 ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '* VAT is already included in item prices',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
+                ),
               ),
               const SizedBox(height: 8),
               const Center(
@@ -398,12 +396,19 @@ class _POSScreenState extends State<POSScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadProducts,
+            tooltip: 'Refresh Products',
+          ),
+          IconButton(
             icon: const Icon(Icons.qr_code_scanner),
             onPressed: _scanProduct,
+            tooltip: 'Scan Barcode',
           ),
           IconButton(
             icon: const Icon(Icons.clear_all),
             onPressed: _cartItems.isNotEmpty ? _clearCart : null,
+            tooltip: 'Clear Cart',
           ),
         ],
       ),
@@ -442,30 +447,65 @@ class _POSScreenState extends State<POSScreen> {
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : _filteredProducts.isEmpty
-                          ? const Center(
-                              child: Text(
-                                'No products found',
-                                style:
-                                    TextStyle(fontSize: 18, color: Colors.grey),
+                          ? RefreshIndicator(
+                              onRefresh: _loadProducts,
+                              child: SingleChildScrollView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                child: SizedBox(
+                                  height:
+                                      MediaQuery.of(context).size.height * 0.5,
+                                  child: const Center(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.inventory_2_outlined,
+                                          size: 64,
+                                          color: Colors.grey,
+                                        ),
+                                        SizedBox(height: 16),
+                                        Text(
+                                          'No products found',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                        SizedBox(height: 8),
+                                        Text(
+                                          'Pull down to refresh',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             )
-                          : GridView.builder(
-                              padding: const EdgeInsets.all(16),
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                childAspectRatio: 0.8,
-                                crossAxisSpacing: 16,
-                                mainAxisSpacing: 16,
+                          : RefreshIndicator(
+                              onRefresh: _loadProducts,
+                              child: GridView.builder(
+                                padding: const EdgeInsets.all(16),
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  childAspectRatio: 0.8,
+                                  crossAxisSpacing: 16,
+                                  mainAxisSpacing: 16,
+                                ),
+                                itemCount: _filteredProducts.length,
+                                itemBuilder: (context, index) {
+                                  final product = _filteredProducts[index];
+                                  return _ProductCard(
+                                    product: product,
+                                    onTap: () => _addToCart(product),
+                                  );
+                                },
                               ),
-                              itemCount: _filteredProducts.length,
-                              itemBuilder: (context, index) {
-                                final product = _filteredProducts[index];
-                                return _ProductCard(
-                                  product: product,
-                                  onTap: () => _addToCart(product),
-                                );
-                              },
                             ),
                 ),
               ],
@@ -590,9 +630,7 @@ class _POSScreenState extends State<POSScreen> {
                         // Totals
                         _TotalSection(
                           subtotal: _subtotal,
-                          tax: _tax,
                           total: _total,
-                          taxRate: _taxRate,
                         ),
 
                         const SizedBox(height: 16),
@@ -806,15 +844,11 @@ class _CartItem extends StatelessWidget {
 
 class _TotalSection extends StatelessWidget {
   final double subtotal;
-  final double tax;
   final double total;
-  final double taxRate;
 
   const _TotalSection({
     required this.subtotal,
-    required this.tax,
     required this.total,
-    required this.taxRate,
   });
 
   @override
@@ -826,14 +860,6 @@ class _TotalSection extends StatelessWidget {
           children: [
             const Text('Subtotal:'),
             Text(PhilippinesConfig.formatCurrency(subtotal)),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('${PhilippinesConfig.formatVatText()}:'),
-            Text(PhilippinesConfig.formatCurrency(tax)),
           ],
         ),
         const Divider(),
@@ -856,6 +882,15 @@ class _TotalSection extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '* VAT included in prices',
+          style: TextStyle(
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+            color: Colors.grey,
+          ),
         ),
       ],
     );

@@ -634,6 +634,104 @@ class DatabaseHelper {
     _logger.i('Sale $saleId voided: $reason');
   }
 
+  /// Permanently delete a voided sale from the database
+  /// Note: This should only be used for voided sales to maintain data integrity
+  Future<void> deleteVoidedSale(String saleId) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      // First verify the sale is voided
+      final saleData = await txn.query(
+        'sales',
+        where: 'id = ? AND isVoided = 1',
+        whereArgs: [saleId],
+      );
+
+      if (saleData.isEmpty) {
+        throw Exception(
+            'Sale not found or is not voided. Only voided sales can be deleted.');
+      }
+
+      // Delete sale items first (foreign key constraint)
+      await txn.delete(
+        'sale_items',
+        where: 'saleId = ?',
+        whereArgs: [saleId],
+      );
+
+      // Delete the sale record
+      await txn.delete(
+        'sales',
+        where: 'id = ?',
+        whereArgs: [saleId],
+      );
+    });
+
+    _logger.i('Voided sale $saleId permanently deleted from database');
+  }
+
+  /// Delete multiple voided sales at once
+  Future<void> deleteMultipleVoidedSales(List<String> saleIds) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      for (final saleId in saleIds) {
+        // Verify each sale is voided
+        final saleData = await txn.query(
+          'sales',
+          where: 'id = ? AND isVoided = 1',
+          whereArgs: [saleId],
+        );
+
+        if (saleData.isEmpty) {
+          _logger.w('Skipping sale $saleId - not found or not voided');
+          continue;
+        }
+
+        // Delete sale items first
+        await txn.delete(
+          'sale_items',
+          where: 'saleId = ?',
+          whereArgs: [saleId],
+        );
+
+        // Delete the sale record
+        await txn.delete(
+          'sales',
+          where: 'id = ?',
+          whereArgs: [saleId],
+        );
+      }
+    });
+
+    _logger.i('Deleted ${saleIds.length} voided sales from database');
+  }
+
+  /// Clean up all voided sales older than specified days
+  Future<int> cleanupOldVoidedSales({int olderThanDays = 30}) async {
+    final db = await database;
+    final cutoffDate = DateTime.now().subtract(Duration(days: olderThanDays));
+
+    // Get voided sales older than cutoff date
+    final oldVoidedSales = await db.query(
+      'sales',
+      columns: ['id'],
+      where: 'isVoided = 1 AND voidedAt < ?',
+      whereArgs: [cutoffDate.millisecondsSinceEpoch],
+    );
+
+    if (oldVoidedSales.isEmpty) {
+      return 0;
+    }
+
+    final saleIds = oldVoidedSales.map((sale) => sale['id'] as String).toList();
+    await deleteMultipleVoidedSales(saleIds);
+
+    _logger.i(
+        'Cleaned up ${saleIds.length} voided sales older than $olderThanDays days');
+    return saleIds.length;
+  }
+
   /// Get all sales including voided ones with a flag
   Future<List<Sale>> getAllSalesIncludingVoided(
       {int? limit, int? offset}) async {

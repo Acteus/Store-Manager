@@ -140,6 +140,41 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         backgroundColor: Colors.purple.shade700,
         foregroundColor: Colors.white,
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              switch (value) {
+                case 'cleanup':
+                  _showCleanupDialog();
+                  break;
+                case 'stats':
+                  _showStatsDialog();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'cleanup',
+                child: Row(
+                  children: [
+                    Icon(Icons.cleaning_services),
+                    SizedBox(width: 8),
+                    Text('Cleanup Voided Sales'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'stats',
+                child: Row(
+                  children: [
+                    Icon(Icons.analytics),
+                    SizedBox(width: 8),
+                    Text('Sales Statistics'),
+                  ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.date_range),
             onPressed: _selectDateRange,
@@ -288,6 +323,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                               sale: sale,
                               onTap: () => _showSaleDetails(sale),
                               onVoid: () => _showVoidSaleDialog(sale),
+                              onDelete: sale.isVoided
+                                  ? () => _showDeleteVoidedSaleDialog(sale)
+                                  : null,
                             );
                           },
                         ),
@@ -398,6 +436,332 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
         }
       }
     }
+  }
+
+  Future<void> _showDeleteVoidedSaleDialog(Sale sale) async {
+    if (!sale.isVoided) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning, color: Colors.orange.shade700),
+            const SizedBox(width: 8),
+            const Text('Delete Voided Sale'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Are you sure you want to permanently delete this voided sale?',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text('Receipt #${sale.id.substring(0, 8)}'),
+            Text('Amount: ${PhilippinesConfig.formatCurrency(sale.total)}'),
+            if (sale.voidReason != null) ...[
+              const SizedBox(height: 4),
+              Text('Void reason: ${sale.voidReason}'),
+            ],
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                border: Border.all(color: Colors.orange.shade200),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 16, color: Colors.orange.shade700),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Important:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '• This action cannot be undone\n'
+                    '• The sale will be permanently removed\n'
+                    '• This helps keep your sales history clean',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete Permanently'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _databaseHelper.deleteVoidedSale(sale.id);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content:
+                  Text('Sale #${sale.id.substring(0, 8)} permanently deleted'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+
+        // Reload sales to update the list
+        await _loadSales();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete sale: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showCleanupDialog() async {
+    final voidedSales = _sales.where((sale) => sale.isVoided).toList();
+
+    if (voidedSales.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No voided sales to cleanup'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.cleaning_services, color: Colors.blue.shade700),
+            const SizedBox(width: 8),
+            const Text('Cleanup Voided Sales'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Found ${voidedSales.length} voided sales that can be cleaned up.',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Cleanup options:',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep),
+              title: const Text('Delete all voided sales'),
+              subtitle:
+                  Text('Remove all ${voidedSales.length} voided transactions'),
+              onTap: () => Navigator.of(context).pop(true),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.schedule_outlined),
+              title: const Text('Delete old voided sales'),
+              subtitle: const Text('Remove voided sales older than 30 days'),
+              onTap: () => Navigator.of(context).pop('old'),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                border: Border.all(color: Colors.orange.shade200),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'Note: This action cannot be undone. Voided sales will be permanently removed.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // Delete all voided sales
+      try {
+        final voidedSaleIds = voidedSales.map((sale) => sale.id).toList();
+        await _databaseHelper.deleteMultipleVoidedSales(voidedSaleIds);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  '${voidedSaleIds.length} voided sales permanently deleted'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        await _loadSales();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to cleanup sales: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } else if (confirmed == 'old') {
+      // Delete old voided sales
+      try {
+        final deletedCount =
+            await _databaseHelper.cleanupOldVoidedSales(olderThanDays: 30);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$deletedCount old voided sales deleted'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        await _loadSales();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to cleanup old sales: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showStatsDialog() async {
+    final totalSales = _sales.length;
+    final voidedSales = _sales.where((sale) => sale.isVoided).length;
+    final activeSales = totalSales - voidedSales;
+    final totalRevenue = _sales
+        .where((sale) => !sale.isVoided)
+        .fold(0.0, (sum, sale) => sum + sale.total);
+    final voidedAmount = _sales
+        .where((sale) => sale.isVoided)
+        .fold(0.0, (sum, sale) => sum + sale.total);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.analytics, color: Colors.blue.shade700),
+            const SizedBox(width: 8),
+            const Text('Sales Statistics'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildStatRow('Total Sales', '$totalSales', Icons.receipt_long),
+            _buildStatRow('Active Sales', '$activeSales', Icons.check_circle,
+                Colors.green),
+            _buildStatRow(
+                'Voided Sales', '$voidedSales', Icons.cancel, Colors.red),
+            const Divider(),
+            _buildStatRow(
+                'Total Revenue',
+                PhilippinesConfig.formatCurrency(totalRevenue),
+                Icons.attach_money,
+                Colors.green),
+            _buildStatRow(
+                'Voided Amount',
+                PhilippinesConfig.formatCurrency(voidedAmount),
+                Icons.money_off,
+                Colors.red),
+            const SizedBox(height: 8),
+            if (voidedSales > 0)
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  border: Border.all(color: Colors.blue.shade200),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Tip: Use "Cleanup Voided Sales" to remove old voided transactions and keep your sales history clean.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(String label, String value, IconData icon,
+      [Color? color]) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color ?? Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Expanded(child: Text(label)),
+          Text(value,
+              style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
   }
 
   void _showSaleDetails(Sale sale) {
@@ -529,11 +893,13 @@ class _SaleListItem extends StatelessWidget {
   final Sale sale;
   final VoidCallback onTap;
   final VoidCallback? onVoid;
+  final VoidCallback? onDelete;
 
   const _SaleListItem({
     required this.sale,
     required this.onTap,
     this.onVoid,
+    this.onDelete,
   });
 
   @override
@@ -627,9 +993,27 @@ class _SaleListItem extends StatelessWidget {
                     child: GestureDetector(
                       onTap: onVoid,
                       child: Icon(
-                        Icons.delete_outline,
+                        Icons.cancel_outlined,
                         size: 20,
                         color: Colors.red.shade700,
+                      ),
+                    ),
+                  ),
+                if (sale.isVoided && onDelete != null)
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade100,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.red.shade300),
+                    ),
+                    child: GestureDetector(
+                      onTap: onDelete,
+                      child: Icon(
+                        Icons.delete_forever,
+                        size: 20,
+                        color: Colors.red.shade800,
                       ),
                     ),
                   ),
